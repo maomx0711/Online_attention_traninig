@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>注意偏向训练实验</title>
+    <script src="jspsych/jspsych.js"></script>
+    <link rel="stylesheet" href="jspsych/jspsych.css">
+    <script src="jspsych/plugin-html-keyboard-response.js"></script>
+    <script src="jspsych/plugin-instructions.js"></script>
+    <script src="jspsych/plugin-preload.js"></script>
+    <script src="jspsych/plugin-survey-text.js"></script>
+    <style>
+        body {
+            background-color: #7F7F7F; /* 灰色背景 LUMINANCE=127 */
+            cursor: default; /* 初始显示鼠标 */
+        }
+        
+        body.hide-cursor {
+            cursor: none; /* 隐藏鼠标的类 */
+        }
+        
+        .experiment-container {
+            width: 800px;
+            height: 288px; /* 9*32 visualAngle */
+            margin: 0 auto;
+            position: relative;
+            background-color: #7F7F7F;
+        }
+        
+        .frame-container {
+            width: 240px; /* 7.5*32 visualAngle */
+            height: 240px;
+            border: 2px solid black;
+            position: absolute;
+            top: 24px;
+            background-color: #7F7F7F;
+        }
+        
+        .frame-left {
+            left: 0;
+        }
+        
+        .frame-right {
+            right: 0;
+        }
+        
+        .inner-frame {
+            position: absolute;
+            top: 16px; /* gap */
+            left: 16px;
+            width: 206px;
+            height: 206px;
+            border: 2px solid black;
+        }
+        
+        .frame-cross {
+            position: absolute;
+            background-color: black;
+        }
+        
+        .cross-h {
+            width: 16px;
+            height: 2px;
+            top: 50%;
+            left: 0;
+        }
+        
+        .cross-v {
+            width: 2px;
+            height: 16px;
+            left: 50%;
+            top: 0;
+        }
+        
+        .fixation-cross {
+            position: absolute;
+            background-color: white;
+            left: 50%;
+            top: 50%;
+        }
+        
+        .fixation-cross-error {
+            position: absolute;
+            background-color: red;
+            left: 50%;
+            top: 50%;
+            z-index: 10; /* 确保在白色十字上方 */
+        }
+        
+        .fix-h {
+            width: 18px;
+            height: 2px;
+            margin-left: -9px;
+            margin-top: -1px;
+        }
+        
+        .fix-v {
+            width: 2px;
+            height: 18px;
+            margin-left: -1px;
+            margin-top: -9px;
+        }
+        
+        .fix-h-error {
+            width: 18px;
+            height: 2px;
+            margin-left: -9px;
+            margin-top: -1px;
+        }
+        
+        .fix-v-error {
+            width: 2px;
+            height: 18px;
+            margin-left: -1px;
+            margin-top: -9px;
+        }
+        
+        .stimulus-image {
+            position: absolute;
+            width: 206px;
+            height: 206px;
+            object-fit: cover;
+            top: 0;
+            left: 0;
+        }
+        
+        .arrow-stimulus {
+            position: absolute;
+            font-size: 64px;
+            font-weight: bold;
+            color: #484848; /* tar_lum=72 */
+            width: 64px;
+            height: 64px;
+            line-height: 64px;
+            text-align: center;
+        }
+        
+        .mask-overlay {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .noise-square {
+            position: absolute;
+        }
+    </style>
+</head>
+<body></body>
+<script>
+    // 实验参数
+    const TRIAL_N = 80;
+    const RUN_NUM = 16;
+    const FIXATION_TIME = 500;
+    const CUE_TIME = 33; // 2帧 @ 60Hz
+    const MASK_TIME = 267; // 16帧 @ 60Hz
+    const ISI_TIME = 50;
+    const TARGET_TIME = 100;
+    const RESPONSE_DEADLINE = 2000;
+    const IMAGE_OPACITY = 0.2; // 图片透明度 (0-1之间，0完全透明，1完全不透明)
+    const MASK_OPACITY = 1.0; // 掩蔽色块透明度 (0-1之间，0完全透明，1完全不透明)
+    
+    // 存储实验数据
+    let experimentData = {
+        subjectID: '',
+        trainingDay: '',
+        startRun: 1,
+        currentRun: 1,
+        allResults: []
+    };
+    
+    // 初始化jsPsych
+    const jsPsych = initJsPsych({
+        on_finish: function() {
+            // 显示结果并保存
+            displayResults();
+            // 退出全屏
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            }
+            // 实验结束后显示鼠标
+            document.body.classList.remove('hide-cursor');
+        }
+    });
+    
+    let timeline = [];
+    
+    // 全屏提示和进入全屏
+    const enterFullscreen = {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: `
+        <div style="text-align:center; font-size:24px; line-height:2;">
+            <p style="font-size:32px; font-weight:bold;">注意偏向训练实验</p>
+            <p style="margin-top:40px;">实验需要在全屏模式下进行</p>
+            <p style="margin-top:30px; color:#FF5722;">
+                <strong>按任意键进入全屏并开始实验</strong>
+            </p>
+            <p style="margin-top:50px; font-size:18px; color:#666;">
+                提示：实验过程中请勿退出全屏<br>
+                按ESC键可退出全屏（但会中断实验）
+            </p>
+        </div>
+        `,
+        on_finish: function() {
+            // 进入全屏
+            const element = document.documentElement;
+            if (element.requestFullscreen) {
+                element.requestFullscreen();
+            } else if (element.webkitRequestFullscreen) {
+                element.webkitRequestFullscreen(); // Safari
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen(); // IE11
+            }
+        }
+    };
+    timeline.push(enterFullscreen);
+    
+    // 监听全屏退出事件
+    document.addEventListener('fullscreenchange', function() {
+        if (!document.fullscreenElement) {
+            // 如果在实验过程中退出全屏，显示警告
+            if (jsPsych.getCurrentTrial() && jsPsych.data.get().count() > 3) {
+                alert('请保持全屏模式完成实验！\n\n实验将自动暂停。\n按确定后将重新进入全屏。');
+                // 重新进入全屏
+                const element = document.documentElement;
+                if (element.requestFullscreen) {
+                    element.requestFullscreen();
+                }
+            }
+        }
+    });
+    
+    // Safari浏览器兼容
+    document.addEventListener('webkitfullscreenchange', function() {
+        if (!document.webkitFullscreenElement) {
+            if (jsPsych.getCurrentTrial() && jsPsych.data.get().count() > 3) {
+                alert('请保持全屏模式完成实验！\n\n实验将自动暂停。\n按确定后将重新进入全屏。');
+                const element = document.documentElement;
+                if (element.webkitRequestFullscreen) {
+                    element.webkitRequestFullscreen();
+                }
+            }
+        }
+    });
+    
+    // 被试信息收集
+    const subjectInfo = {
+        type: jsPsychSurveyText,
+        questions: [
+            {prompt: '姓名:', name: 'subjectID', required: true},
+            {prompt: '训练天数:', name: 'trainingDay', required: true},
+            {prompt: '开始轮数:', name: 'startRun', required: true}
+        ],
+        on_finish: function(data) {
+            experimentData.subjectID = data.response.subjectID;
+            experimentData.trainingDay = data.response.trainingDay;
+            experimentData.startRun = parseInt(data.response.startRun);
+            experimentData.currentRun = experimentData.startRun;
+        }
+    };
+    timeline.push(subjectInfo);
+    
+    // 指导语
+    const instructions = {
+        type: jsPsychInstructions,
+        pages: [
+            '<p style="font-size:24px;">欢迎参加注意偏向训练实验</p>' +
+            '<p>在实验中,你会看到两个方框,里面会短暂出现图片。</p>' +
+            '<p>随后会出现一个箭头(← 或 →)。</p>',
+            '<p style="font-size:20px;">你的任务:</p>' +
+            '<p>如果箭头指向<strong>左边</strong>(←),请按 <strong>N</strong> 键</p>' +
+            '<p>如果箭头指向<strong>右边</strong>(→),请按 <strong>M</strong> 键</p>' +
+            '<p>请尽可能<strong>快速且准确</strong>地反应!</p>',
+            '<p>准备好后,按空格键开始实验。</p>'
+        ],
+        show_clickable_nav: true,
+        button_label_next: '下一页',
+        button_label_previous: '上一页',
+        on_finish: function() {
+            // 指导语结束后隐藏鼠标
+            document.body.classList.add('hide-cursor');
+            console.log('指导语结束，隐藏鼠标');
+        }
+    };
+    timeline.push(instructions);
+    
+    // 创建16个block的循环
+    for (let block = 1; block <= RUN_NUM; block++) {
+        // 等待触发键开始每个block
+        const waitTrigger = {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                return `<p style="font-size:24px; color:yellow;">Waiting for the trigger to start... Block ${block}/${RUN_NUM}</p>` +
+                       generateFixation();
+            },
+            choices: ['s'], // 's'键作为触发
+            on_finish: function() {
+                experimentData.currentRun = block;
+                console.log(`Block ${block} 开始`);
+            }
+        };
+        timeline.push(waitTrigger);
+        
+        // 添加当前block的80个试次
+        const blockTrials = createRunTimeline(block);
+        timeline = timeline.concat(blockTrials);
+        
+        // Block结束页面(除了最后一个block)
+        if (block < RUN_NUM) {
+            const blockEnd = {
+                type: jsPsychHtmlKeyboardResponse,
+                stimulus: function() {
+                    const trials = jsPsych.data.get().filter({trial_type: 'response_window', block_number: block});
+                    const correct_trials = trials.filter({correct: true});
+                    
+                    const blockTotal = trials.count();
+                    const blockCorrectCount = correct_trials.count();
+                    
+                    const accuracy = blockTotal > 0 ? Math.round(blockCorrectCount / blockTotal * 100) : 0;
+                    const avg_rt = blockCorrectCount > 0 ? Math.round(correct_trials.select('final_rt').mean()) : 0;
+                    
+                    return `<div style="font-size:22px; text-align:center; line-height:2;">
+                        <p style="font-size:28px; font-weight:bold; color:#4CAF50;">Block ${block}/${RUN_NUM} 完成!</p>
+                        <p style="margin-top:30px;">
+                            正确率: <strong style="color:#2196F3;">${accuracy}%</strong><br>
+                            平均反应时: <strong style="color:#2196F3;">${avg_rt} ms</strong>
+                        </p>
+                        <p style="margin-top:40px; font-size:20px;">
+                            请休息片刻...<br>
+                            准备好后按<strong style="color:#FF5722;">S键</strong>开始下一个Block
+                        </p>
+                    </div>`;
+                },
+                choices: "NO_KEYS",
+                trial_duration: 3000 // 自动显示3秒
+            };
+            timeline.push(blockEnd);
+        }
+    }
+    function generateMask() {
+        let maskHTML = '<div class="experiment-container">';
+        
+        // 左侧框架
+        maskHTML += '<div class="frame-container frame-left">';
+        maskHTML += '<div class="inner-frame"></div>';
+        maskHTML += generateNoiseSquares();
+        maskHTML += '</div>';
+        
+        // 右侧框架
+        maskHTML += '<div class="frame-container frame-right">';
+        maskHTML += '<div class="inner-frame"></div>';
+        maskHTML += generateNoiseSquares();
+        maskHTML += '</div>';
+        
+        // 注视点
+        maskHTML += '<div class="fixation-cross fix-h"></div>';
+        maskHTML += '<div class="fixation-cross fix-v"></div>';
+        
+        maskHTML += '</div>';
+        return maskHTML;
+    }
+    
+    // 生成噪声方块
+    function generateNoiseSquares() {
+        let html = '';
+        const numSquares = 100; // 每个框架100个噪声方块
+        
+        for (let i = 0; i < numSquares; i++) {
+            const size = Math.random() * 32 + 16; // 16-48像素
+            const left = Math.random() * (240 - size);
+            const top = Math.random() * (240 - size);
+            const r = Math.floor(Math.random() * 256);
+            const g = Math.floor(Math.random() * 256);
+            const b = Math.floor(Math.random() * 256);
+            
+            html += `<div class="noise-square" style="left:${left}px; top:${top}px; width:${size}px; height:${size}px; background-color:rgba(${r},${g},${b},${MASK_OPACITY});"></div>`;
+        }
+        return html;
+    }
+    
+    // 生成线索刺激 - 使用真实图片
+    function generateCueStimulus(drugImageSide, drugImg, neutralImg) {
+        // drugImageSide: 'left' 或 'right' - 药物相关图片的位置
+        // drugImg: 药物图片文件名 (如 "D1-1.jpg" 或 "U3-1.jpg")
+        // neutralImg: 中性图片文件名 (如 "N1-1.jpg")
+        
+        let html = '<div class="experiment-container">';
+        
+        // 左侧框架
+        html += '<div class="frame-container frame-left">';
+        html += '<div class="inner-frame">';
+        if (drugImageSide === 'left') {
+            html += `<img src="${drugImg}" class="stimulus-image" style="top:16px; left:16px; width:206px; height:206px; opacity:${IMAGE_OPACITY};">`;
+        } else {
+            html += `<img src="${neutralImg}" class="stimulus-image" style="top:16px; left:16px; width:206px; height:206px; opacity:${IMAGE_OPACITY};">`;
+        }
+        html += '</div>';
+        html += '</div>';
+        
+        // 右侧框架
+        html += '<div class="frame-container frame-right">';
+        html += '<div class="inner-frame">';
+        if (drugImageSide === 'right') {
+            html += `<img src="${drugImg}" class="stimulus-image" style="top:16px; left:16px; width:206px; height:206px; opacity:${IMAGE_OPACITY};">`;
+        } else {
+            html += `<img src="${neutralImg}" class="stimulus-image" style="top:16px; left:16px; width:206px; height:206px; opacity:${IMAGE_OPACITY};">`;
+        }
+        html += '</div>';
+        html += '</div>';
+        
+        // 注视点
+        html += '<div class="fixation-cross fix-h"></div>';
+        html += '<div class="fixation-cross fix-v"></div>';
+        
+        html += '</div>';
+        return html;
+    }
+    
+    // 生成目标刺激(箭头)
+    function generateTargetStimulus(arrowSide, arrowDirection) {
+        // arrowSide: 'left' 或 'right' - 箭头出现的位置
+        // arrowDirection: 'left' 或 'right' - 箭头方向
+        
+        let html = '<div class="experiment-container">';
+        
+        // 左侧框架
+        html += '<div class="frame-container frame-left">';
+        html += '<div class="inner-frame"></div>';
+        if (arrowSide === 'left') {
+            const arrow = arrowDirection === 'left' ? '←' : '→';
+            html += `<div class="arrow-stimulus" style="left:50%; top:50%; margin-left:-32px; margin-top:-32px;">${arrow}</div>`;
+        }
+        html += '</div>';
+        
+        // 右侧框架
+        html += '<div class="frame-container frame-right">';
+        html += '<div class="inner-frame"></div>';
+        if (arrowSide === 'right') {
+            const arrow = arrowDirection === 'left' ? '←' : '→';
+            html += `<div class="arrow-stimulus" style="left:50%; top:50%; margin-left:-32px; margin-top:-32px;">${arrow}</div>`;
+        }
+        html += '</div>';
+        
+        // 注视点
+        html += '<div class="fixation-cross fix-h"></div>';
+        html += '<div class="fixation-cross fix-v"></div>';
+        
+        html += '</div>';
+        return html;
+    }
+    
+    // 生成注视点
+    function generateFixation(showError = false) {
+        let html = '<div class="experiment-container">';
+        
+        // 左侧框架
+        html += '<div class="frame-container frame-left">';
+        html += '<div class="inner-frame"></div>';
+        html += '</div>';
+        
+        // 右侧框架
+        html += '<div class="frame-container frame-right">';
+        html += '<div class="inner-frame"></div>';
+        html += '</div>';
+        
+        // 白色注视点（始终存在）
+        html += '<div class="fixation-cross fix-h"></div>';
+        html += '<div class="fixation-cross fix-v"></div>';
+        
+        // 如果是错误反馈，叠加红色十字
+        if (showError) {
+            html += '<div class="fixation-cross-error fix-h-error"></div>';
+            html += '<div class="fixation-cross-error fix-v-error"></div>';
+        }
+        
+        html += '</div>';
+        return html;
+    }
+    
+    // 创建一个完整的试次
+    function createTrial(trialNum, blockNum, imageType) {
+        let trial_timeline = [];
+        
+        // 随机参数
+        const drugImageSide = Math.random() < 0.5 ? 'left' : 'right'; // 药物图片在左边还是右边
+        const neutralImageSide = drugImageSide === 'left' ? 'right' : 'left'; // 中性图片在另一边
+        const isDrug = (imageType === 'D'); // 根据传入的imageType决定是D还是U
+        
+        // 根据类型选择图片编号
+        let drugImgNum, neutralImgNum, drugImgType, neutralImgType;
+        if (isDrug) {
+            // D类图片: D1-D5 随机配对 N1-N5
+            drugImgNum = Math.floor(Math.random() * 5) + 1; // 随机选择D1-D5
+            neutralImgNum = Math.floor(Math.random() * 5) + 1; // 随机选择N1-N5
+            drugImgType = `D${drugImgNum}`;
+            neutralImgType = `N${neutralImgNum}`;
+        } else {
+            // U类图片: U1-U5 随机配对 N6-N10
+            drugImgNum = Math.floor(Math.random() * 5) + 1; // 随机选择U1-U5
+            neutralImgNum = Math.floor(Math.random() * 5) + 6; // 随机选择N6-N10
+            drugImgType = `U${drugImgNum}`;
+            neutralImgType = `N${neutralImgNum}`;
+        }
+        
+        const arrowDirection = Math.random() < 0.5 ? 'left' : 'right';
+        const arrowSide = neutralImageSide; // 箭头出现在中性图片位置(训练效果：远离药物线索)
+        
+        // 确定左右图片类型
+        let leftImageType, rightImageType;
+        let drugImg, neutralImg;
+        
+        if (isDrug) {
+            drugImg = `D${drugImgNum}-1.jpg`;
+        } else {
+            drugImg = `U${drugImgNum}-1.jpg`;
+        }
+        neutralImg = `N${neutralImgNum}-1.jpg`;
+        
+        if (drugImageSide === 'left') {
+            leftImageType = drugImgType;    // 左边是药物图片
+            rightImageType = neutralImgType; // 右边是中性图片
+        } else {
+            leftImageType = neutralImgType;  // 左边是中性图片
+            rightImageType = drugImgType;    // 右边是药物图片
+        }
+        
+        // 1. 注视点 (500ms)
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixation(),
+            choices: "NO_KEYS",
+            trial_duration: FIXATION_TIME
+        });
+        
+        // 2. 掩蔽刺激1 (267ms, 16帧)
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateMask(),
+            choices: "NO_KEYS",
+            trial_duration: MASK_TIME
+        });
+        
+        // 3. 线索刺激 (33ms, 2帧)
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateCueStimulus(drugImageSide, drugImg, neutralImg),
+            choices: "NO_KEYS",
+            trial_duration: CUE_TIME,
+            data: {
+                trial_type: 'cue',
+                drug_side: drugImageSide,
+                is_drug: isDrug,
+                drug_image: drugImgType,
+                neutral_image: neutralImgType,
+                block_number: blockNum,
+                trial_number: trialNum,
+                // 详细数据记录
+                left_image_type: leftImageType,
+                right_image_type: rightImageType
+            }
+        });
+        
+        // 4. 掩蔽刺激2 (267ms)
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateMask(),
+            choices: "NO_KEYS",
+            trial_duration: MASK_TIME
+        });
+        
+        // 5. ISI (50ms)
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixation(),
+            choices: "NO_KEYS",
+            trial_duration: ISI_TIME
+        });
+        
+        // 6. 目标刺激(箭头) + 反应收集
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateTargetStimulus(arrowSide, arrowDirection),
+            choices: ['n', 'm'],
+            trial_duration: TARGET_TIME,
+            response_ends_trial: false,
+            data: {
+                trial_type: 'target',
+                arrow_side: arrowSide,
+                arrow_direction: arrowDirection,
+                correct_response: arrowDirection === 'left' ? 'n' : 'm',
+                trial_number: trialNum,
+                block_number: blockNum,
+                // 详细数据记录
+                left_image_type: leftImageType,
+                right_image_type: rightImageType,
+                arrow_position: arrowSide === 'left' ? 1 : 2, // 1=左, 2=右
+                arrow_orient: arrowDirection === 'left' ? 1 : 2 // 1=左, 2=右
+            }
+        });
+        
+        // 7. 反应窗口(继续收集反应)
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixation(),
+            choices: ['n', 'm'],
+            trial_duration: RESPONSE_DEADLINE - TARGET_TIME,
+            data: {
+                trial_type: 'response_window',
+                arrow_direction: arrowDirection,
+                correct_response: arrowDirection === 'left' ? 'n' : 'm',
+                block_number: blockNum,
+                trial_number: trialNum,
+                // 详细数据记录
+                left_image_type: leftImageType,
+                right_image_type: rightImageType,
+                arrow_position: arrowSide === 'left' ? 1 : 2,
+                arrow_orient: arrowDirection === 'left' ? 1 : 2
+            },
+            on_finish: function(data) {
+                // 检查是否正确
+                const allData = jsPsych.data.get().filter({trial_number: trialNum, block_number: blockNum});
+                const targetData = allData.filter({trial_type: 'target'}).values()[0];
+                const responseData = data;
+                
+                // 安全地获取反应和反应时
+                let response = null;
+                let rt = null;
+                
+                if (targetData && targetData.response) {
+                    response = targetData.response;
+                    rt = targetData.rt;
+                } else if (responseData.response) {
+                    response = responseData.response;
+                    rt = targetData ? (targetData.trial_duration + responseData.rt) : responseData.rt;
+                }
+                
+                // 计算正确性
+                let correct = (response === data.correct_response);
+                
+                // 将反应转换为1(左)或2(右)
+                let response_code = null;
+                if (response === 'n') {
+                    response_code = 1; // N键=左
+                } else if (response === 'm') {
+                    response_code = 2; // M键=右
+                }
+                
+                // 保存所有详细数据
+                data.final_response = response;
+                data.final_response_code = response_code; // 1=左, 2=右
+                data.final_rt = rt;
+                data.correct = correct;
+                data.correct_code = correct ? 1 : 0; // 1=正确, 0=错误
+                
+                // 添加试次在整个实验中的序号
+                data.trial_order = (blockNum - 1) * TRIAL_N + trialNum;
+                
+                // 保存错误状态，用于下一个试次的反馈
+                // 只有在有反应且反应错误时才显示错误反馈
+                data.show_error_feedback = (response !== null && !correct);
+                
+                console.log(`试次${trialNum}: 反应=${response}, 正确答案=${data.correct_response}, 正确=${correct}, 显示错误反馈=${data.show_error_feedback}`);
+            }
+        });
+        
+        // 8. 错误反馈 (如果反应错误，显示红色十字300ms)
+        const errorFeedbackTrial = {
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: '',
+            choices: "NO_KEYS",
+            trial_duration: 1,
+            data: {
+                trial_type: 'error_feedback',
+                trial_number: trialNum,
+                block_number: blockNum
+            },
+            on_start: function(trial) {
+                // 在试次开始时动态生成stimulus
+                const allData = jsPsych.data.get().filter({trial_number: trialNum, block_number: blockNum});
+                const lastTrial = allData.filter({trial_type: 'response_window'}).values()[0];
+                
+                if (lastTrial && lastTrial.show_error_feedback === true) {
+                    trial.stimulus = generateFixation(true); // 红色十字
+                    trial.trial_duration = 300;
+                    console.log(`显示红色十字 - 试次${trialNum}`);
+                } else {
+                    trial.stimulus = generateFixation(false); // 白色十字
+                    trial.trial_duration = 1;
+                }
+            }
+        };
+        trial_timeline.push(errorFeedbackTrial);
+        
+        // 9. 随机ITI (100-600ms)
+        const iti = Math.random() * 500 + 100;
+        trial_timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixation(),
+            choices: "NO_KEYS",
+            trial_duration: iti
+        });
+        
+        return {
+            timeline: trial_timeline
+        };
+    }
+    
+    // 创建一个block的所有试次
+    function createRunTimeline(blockNum) {
+        let run_timeline = [];
+        
+        // 创建试次类型数组: 40个'D' + 40个'U'
+        let trialTypes = [];
+        for (let i = 0; i < TRIAL_N / 2; i++) {
+            trialTypes.push('D'); // 40个D类试次
+        }
+        for (let i = 0; i < TRIAL_N / 2; i++) {
+            trialTypes.push('U'); // 40个U类试次
+        }
+        
+        // 随机打乱试次顺序
+        trialTypes = shuffleArray(trialTypes);
+        
+        // 创建试次
+        for (let i = 0; i < TRIAL_N; i++) {
+            run_timeline.push(createTrial(i + 1, blockNum, trialTypes[i]));
+        }
+        
+        return run_timeline;
+    }
+    
+    // 数组随机打乱函数 (Fisher-Yates洗牌算法)
+    function shuffleArray(array) {
+        const shuffled = [...array]; // 创建副本
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+    }
+    
+    // 生成掩蔽刺激的函数
+    const debrief = {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: function() {
+            const trials = jsPsych.data.get().filter({trial_type: 'response_window'});
+            const correct_trials = trials.filter({correct: true});
+            const accuracy = Math.round(correct_trials.count() / trials.count() * 100);
+            const avg_rt = Math.round(correct_trials.select('final_rt').mean());
+            
+            return `<div style="font-size:24px; text-align:center; line-height:2;">
+                <p style="font-size:32px; font-weight:bold; color:#4CAF50;">感谢您的参与!</p>
+                <p style="margin-top:40px;">本次训练到此结束</p>
+                <p style="margin-top:20px; border-top:2px solid #ddd; padding-top:20px;">
+                    <strong>训练结果:</strong>
+                </p>
+                <p>Run ${experimentData.currentRun} 完成</p>
+                <p>正确率: <strong style="color:#2196F3;">${accuracy}%</strong></p>
+                <p>平均反应时: <strong style="color:#2196F3;">${avg_rt} ms</strong></p>
+                <p style="margin-top:50px; font-size:20px; color:#FF5722;">
+                    ⬇️ 请按<strong>空格键</strong>退出，并点击<strong>接受</strong>保存数据 ⬇️
+                </p>
+            </div>`;
+        },
+        choices: [' '] // 只接受空格键
+    };
+    timeline.push(debrief);
+    
+    // 显示结果并保存函数
+    function displayResults() {
+        // 获取所有数据
+        const allData = jsPsych.data.get();
+        console.log('所有数据总数:', allData.count());
+        
+        // 查看有哪些trial_type
+        const trialTypes = allData.select('trial_type').values.filter(v => v !== undefined);
+        console.log('所有trial_type:', [...new Set(trialTypes)]);
+        
+        // 只获取response_window类型的数据（每个试次一行）
+        const trials = allData.filter({trial_type: 'response_window'});
+        console.log('response_window类型数据数量:', trials.count());
+        
+        const correct_trials = trials.filter({correct: true});
+        
+        const totalTrials = trials.count();
+        const correctCount = correct_trials.count();
+        
+        // 如果没有数据，尝试获取所有带有final_rt的数据
+        let trialsData;
+        if (totalTrials === 0) {
+            console.log('警告: 没有找到response_window类型的数据，尝试其他方式...');
+            trialsData = allData.filter(trial => trial.final_rt !== undefined).values();
+            console.log('找到带有final_rt的数据:', trialsData.length);
+        } else {
+            trialsData = trials.values();
+        }
+        
+        // 安全计算，避免除以0或undefined
+        const accuracy = totalTrials > 0 ? (correctCount / totalTrials * 100).toFixed(2) : '0.00';
+        const avg_rt = correctCount > 0 ? correct_trials.select('final_rt').mean().toFixed(2) : '0.00';
+        
+        console.log('实验数据汇总:', {
+            被试ID: experimentData.subjectID,
+            训练天数: experimentData.trainingDay,
+            完成Block数: RUN_NUM,
+            总试次: trialsData.length,
+            正确试次: correctCount,
+            总正确率: accuracy + '%',
+            平均反应时: avg_rt + ' ms'
+        });
+        
+        // 按Block显示详细数据（如果有数据）
+        if (trialsData.length > 0) {
+            for (let block = 1; block <= RUN_NUM; block++) {
+                const blockData = trialsData.filter(t => t.block_number === block);
+                const blockCorrect = blockData.filter(t => t.correct === true);
+                const blockTotal = blockData.length;
+                const blockCorrectCount = blockCorrect.length;
+                
+                if (blockTotal > 0) {
+                    const blockAcc = (blockCorrectCount / blockTotal * 100).toFixed(2);
+                    const blockRT = blockCorrect.length > 0 ? 
+                        (blockCorrect.reduce((sum, t) => sum + (t.final_rt || 0), 0) / blockCorrect.length).toFixed(2) : 'N/A';
+                    
+                    console.log(`Block ${block}:`, {
+                        试次数: blockTotal,
+                        正确率: blockAcc + '%',
+                        平均RT: blockRT + ' ms'
+                    });
+                }
+            }
+        }
+        
+        // 只保存每个试次的关键数据
+        console.log('开始处理数据，总试次数:', trialsData.length);
+        if (trialsData.length > 0) {
+            console.log('第一个试次的数据:', trialsData[0]);
+        }
+        
+        // 创建清洗后的数据数组
+        const cleanDataArray = trialsData.map(trial => ({
+            trial_order: trial.trial_order || '',
+            block_number: trial.block_number || '',
+            trial_number: trial.trial_number || '',
+            left_image_type: trial.left_image_type || '',
+            right_image_type: trial.right_image_type || '',
+            arrow_position: trial.arrow_position || '',
+            arrow_orient: trial.arrow_orient || '',
+            final_response_code: trial.final_response_code || '',
+            correct_code: trial.correct_code !== undefined ? trial.correct_code : '',
+            final_rt: trial.final_rt || ''
+        }));
+        
+        console.log('清洗后的数据数量:', cleanDataArray.length);
+        if (cleanDataArray.length > 0) {
+            console.log('第一行数据:', cleanDataArray[0]);
+        }
+        
+        // 转换为CSV格式
+        const csvContent = convertToCSV(cleanDataArray);
+        console.log('CSV内容长度:', csvContent.length);
+        if (csvContent.length > 0) {
+            console.log('CSV前500字符:', csvContent.substring(0, 500));
+        }
+        
+        // 保存数据
+        const filename = `ATT_training_${experimentData.subjectID}_Day${experimentData.trainingDay}_${RUN_NUM}blocks.csv`;
+        downloadCSV(csvContent, filename);
+        
+        console.log('数据已保存为:', filename);
+        console.log('共保存', trialsData.length, '行数据');
+    }
+    
+    // CSV转换函数
+    function convertToCSV(data) {
+        if (data.length === 0) {
+            console.log('警告: 数据为空!');
+            return '';
+        }
+        
+        // 获取列名
+        const headers = Object.keys(data[0]);
+        console.log('CSV列名:', headers);
+        
+        // 创建CSV内容
+        let csv = headers.join(',') + '\n';
+        
+        data.forEach((row, index) => {
+            const values = headers.map(header => {
+                const value = row[header];
+                // 处理null和undefined
+                if (value === null || value === undefined || value === '') return '';
+                // 处理包含逗号的值
+                if (String(value).includes(',')) return `"${value}"`;
+                return value;
+            });
+            csv += values.join(',') + '\n';
+        });
+        
+        console.log('CSV转换完成，总行数:', data.length + 1);
+        return csv;
+    }
+    
+    // CSV下载函数
+    function downloadCSV(csvContent, filename) {
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    
+    // 运行实验
+    jsPsych.run(timeline);
+</script>
+</html>
