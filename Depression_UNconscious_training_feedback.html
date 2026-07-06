@@ -225,12 +225,11 @@
         return html;
     }
 
-    /** 中央注视点位置呈现正误反馈：正确😊，错误红色X */
+    /** 中央反馈替代白色十字：正确😊，错误红色X */
     function generateFeedback(isCorrect) {
         let html = '<div class="experiment-container">';
         html += '<div class="frame-container frame-left"><div class="inner-frame"></div></div>';
         html += '<div class="frame-container frame-right"><div class="inner-frame"></div></div>';
-        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
         if (isCorrect) {
             html += '<div class="feedback-emoji">\uD83D\uDE0A</div>';
         } else {
@@ -400,6 +399,7 @@
         const rightImageType = neutralSide === 'left' ? pair.negative : pair.neutral;
         const arrowDirection = Math.random() < 0.5 ? 'left' : 'right';
         const arrowSide = neutralSide;
+        const feedbackState = { isCorrect: false };
 
         // 1. 注视点
         pushHtmlFrameTrials(trialTimeline, PARAMS.FIXATION_FRAMES,
@@ -499,32 +499,25 @@
                 data.correct = response === data.correct_response;
                 data.correct_code = data.correct ? 1 : 0;
                 data.trial_order = (blockNum - 1) * PARAMS.TRIAL_N + trialNum;
-                data.show_error_feedback = (response !== null && !data.correct);
+                feedbackState.isCorrect = (response !== null && data.correct);
             }
         });
 
-        // 8. 正误反馈（正确😊 / 错误红色X，500ms）
+        // 8. 正误反馈（正确😊 / 错误红色X，500ms，替代中央十字）
         trialTimeline.push({
             type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateFixation(false),
+            stimulus: function() {
+                return generateFeedback(feedbackState.isCorrect);
+            },
             choices: 'NO_KEYS',
-            trial_duration: 1,
-            data: { trial_type: 'feedback', trial_number: trialNum, block_number: blockNum },
-            on_start: function(trial) {
-                const last = jsPsych.data.get()
-                    .filter({ trial_number: trialNum, block_number: blockNum, trial_type: 'response_window' })
-                    .values()[0];
-                if (last && last.final_response != null) {
-                    trial.stimulus = generateFeedback(last.correct);
-                    trial.trial_duration = PARAMS.FEEDBACK_TIME;
-                    trial.data.feedback_type = last.correct ? 'correct' : 'incorrect';
-                } else if (last) {
-                    trial.stimulus = generateFeedback(false);
-                    trial.trial_duration = PARAMS.FEEDBACK_TIME;
-                    trial.data.feedback_type = 'incorrect';
-                } else {
-                    trial.trial_duration = 1;
-                }
+            trial_duration: PARAMS.FEEDBACK_TIME,
+            data: {
+                trial_type: 'feedback',
+                trial_number: trialNum,
+                block_number: blockNum
+            },
+            on_finish: function(data) {
+                data.feedback_type = feedbackState.isCorrect ? 'correct' : 'incorrect';
             }
         });
 
