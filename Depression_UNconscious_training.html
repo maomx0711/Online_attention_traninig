@@ -5,13 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>无意识注意转移训练</title>
 
-    <!-- jsPsych CDN：可直接在线运行，无需本地依赖 -->
-    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <!-- jsPsych 7 CDN（browser 构建 + 独立插件包） -->
+    <script src="https://unpkg.com/jspsych@7.3.4/dist/index.browser.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
-    <script src="https://unpkg.com/jspsych@7.3.4/plugin-html-keyboard-response.js"></script>
-    <script src="https://unpkg.com/jspsych@7.3.4/plugin-instructions.js"></script>
-    <script src="https://unpkg.com/jspsych@7.3.4/plugin-preload.js"></script>
-    <script src="https://unpkg.com/jspsych@7.3.4/plugin-survey-text.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3/dist/index.browser.min.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-instructions@1.1.3/dist/index.browser.min.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3/dist/index.browser.min.js"></script>
 
     <style>
         body {
@@ -191,11 +190,29 @@
     });
 
     timeline.push({
-        type: jsPsychPreload,
-        images: ALL_IMAGE_URLS,
-        message: '<p style="color:white;">正在加载实验图片，请稍候...</p>',
-        error_message: '<p style="color:red;">图片加载失败，请检查网络连接后刷新页面。</p>',
-        show_progress_bar: true
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: '<p id="loadmsg" style="color:white;font-size:22px;text-align:center;">正在加载实验图片，请稍候...</p>',
+        choices: 'NO_KEYS',
+        on_load: function() {
+            const urls = ALL_IMAGE_URLS;
+            let done = 0;
+            if (urls.length === 0) {
+                jsPsych.finishTrial();
+                return;
+            }
+            urls.forEach(function(url) {
+                const img = new Image();
+                const finish = function() {
+                    done++;
+                    const el = document.getElementById('loadmsg');
+                    if (el) el.textContent = '正在加载实验图片 ' + done + '/' + urls.length + ' ...';
+                    if (done >= urls.length) jsPsych.finishTrial();
+                };
+                img.onload = finish;
+                img.onerror = finish;
+                img.src = url;
+            });
+        }
     });
 
     timeline.push({
