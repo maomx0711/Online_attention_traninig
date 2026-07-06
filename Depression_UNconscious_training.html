@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>无意识注意转移训练</title>
+
+    <script src="https://unpkg.com/jspsych@7.3.4/dist/index.browser.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3/dist/index.browser.min.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-instructions@1.1.3/dist/index.browser.min.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3/dist/index.browser.min.js"></script>
+
+    <style>
+        body { background-color: #7F7F7F; cursor: default; }
+        body.hide-cursor { cursor: none; }
+        .experiment-container {
+            width: 800px; height: 288px; margin: 0 auto;
+            position: relative; background-color: #7F7F7F;
+        }
+        .frame-container {
+            width: 240px; height: 240px; border: 2px solid black;
+            position: absolute; top: 24px; background-color: #7F7F7F;
+        }
+        .frame-left { left: 0; }
+        .frame-right { right: 0; }
+        .inner-frame {
+            position: absolute; top: 16px; left: 16px;
+            width: 206px; height: 206px; border: 2px solid black; overflow: hidden;
+        }
+        .stimulus-image {
+            position: absolute; width: 206px; height: 206px;
+            object-fit: cover; top: 0; left: 0;
+        }
+        .arrow-stimulus {
+            position: absolute; font-size: 64px; font-weight: bold; color: #484848;
+            width: 64px; height: 64px; line-height: 64px; text-align: center;
+        }
+        .fixation-cross { position: absolute; background-color: white; left: 50%; top: 50%; }
+        .fixation-cross-error { position: absolute; background-color: red; left: 50%; top: 50%; z-index: 10; }
+        .fix-h { width: 18px; height: 2px; margin-left: -9px; margin-top: -1px; }
+        .fix-v { width: 2px; height: 18px; margin-left: -1px; margin-top: -9px; }
+        .fix-h-error { width: 18px; height: 2px; margin-left: -9px; margin-top: -1px; }
+        .fix-v-error { width: 2px; height: 18px; margin-left: -1px; margin-top: -9px; }
+        .noise-square { position: absolute; }
+    </style>
+</head>
+<body></body>
+<script>
+    // ==================== 实验参数（帧数控制） ====================
+    const PARAMS = {
+        TRIAL_N: 80,
+        RUN_NUM: 8,
+        FRAME_MS: 1000 / 60,
+        FIXATION_FRAMES: 30,
+        CUE_FRAMES: 1,             // 面孔呈现 1 帧
+        MASK_FRAMES: 16,
+        ISI_FRAMES: 3,
+        TARGET_TIME: 100,
+        RESPONSE_DEADLINE: 2000,
+        IMAGE_OPACITY: 0.2,
+        MASK_OPACITY: 1.0
+    };
+
+    const IMAGE_BASE = 'https://gitee.com/maomx0711/depression_training/raw/master/';
+
+    const IMAGE_PAIRS = [
+        { neutral: 'O04F-76_happy.jpg', negative: 'O04F-76_sad.jpg' },
+        { neutral: 'O08M-65_happy.jpg', negative: 'O08M-65_sad.jpg' },
+        { neutral: 'Y58M-22_happy.jpg', negative: 'Y58M-22_sad.jpg' },
+        { neutral: 'Y71F_happy.jpg',   negative: 'Y71F_sad.jpg' }
+    ];
+
+    const ALL_IMAGE_URLS = IMAGE_PAIRS.flatMap(p => [
+        IMAGE_BASE + p.neutral,
+        IMAGE_BASE + p.negative
+    ]);
+
+    // 预加载到内存的 Image 对象，避免短帧内图片未加载而不显示
+    const imageCache = {};
+    let imagesReady = false;
+
+    let experimentData = {
+        subjectID: '',
+        trainingDay: '',
+        startRun: 1,
+        currentRun: 1
+    };
+
+    let refreshRateInfo = {
+        measured_hz: 60,
+        used_hz: 60,
+        frame_ms: 1000 / 60,
+        raw_median_ms: 1000 / 60
+    };
+
+    const COMMON_REFRESH_RATES = [50, 59, 60, 75, 90, 100, 120, 144, 165, 240];
+
+    function snapRefreshRate(hz) {
+        return COMMON_REFRESH_RATES.reduce((best, rate) =>
+            Math.abs(rate - hz) < Math.abs(best - hz) ? rate : best
+        );
+    }
+
+    /** 用 requestAnimationFrame 间隔估算屏幕刷新率 */
+    function measureRefreshRate(sampleCount) {
+        sampleCount = sampleCount || 120;
+        return new Promise((resolve) => {
+            const deltas = [];
+            let last = null;
+            let n = 0;
+            function onFrame(ts) {
+                if (last !== null) deltas.push(ts - last);
+                last = ts;
+                n++;
+                const el = document.getElementById('refresh-progress');
+                if (el) {
+                    el.textContent = '正在检测屏幕刷新率... ' +
+                        Math.min(100, Math.round(n / sampleCount * 100)) + '%';
+                }
+                if (n < sampleCount) {
+                    requestAnimationFrame(onFrame);
+                } else {
+                    const valid = deltas.slice(2);
+                    valid.sort((a, b) => a - b);
+                    const median = valid[Math.floor(valid.length / 2)] || (1000 / 60);
+                    const measuredHz = 1000 / median;
+                    const usedHz = snapRefreshRate(measuredHz);
+                    resolve({
+                        measuredHz: measuredHz,
+                        usedHz: usedHz,
+                        frameMs: 1000 / usedHz,
+                        rawMedianMs: median
+                    });
+                }
+            }
+            requestAnimationFrame(onFrame);
+        });
+    }
+
+    function applyRefreshRate(info) {
+        refreshRateInfo = {
+            measured_hz: Math.round(info.measuredHz * 10) / 10,
+            used_hz: info.usedHz,
+            frame_ms: info.frameMs,
+            raw_median_ms: Math.round(info.rawMedianMs * 100) / 100
+        };
+        PARAMS.FRAME_MS = info.frameMs;
+    }
+
+    const jsPsych = initJsPsych({
+        on_finish: function() {
+            displayResults();
+            if (document.fullscreenElement) document.exitFullscreen();
+            document.body.classList.remove('hide-cursor');
+        }
+    });
+
+    let timeline = [];
+
+    // ==================== 图片预加载 ====================
+    function loadImage(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('Failed: ' + url));
+            img.src = url;
+        });
+    }
+
+    async function preloadAllImages() {
+        for (const url of ALL_IMAGE_URLS) {
+            const img = await loadImage(url);
+            const name = url.split('/').pop();
+            imageCache[name] = img;
+        }
+        imagesReady = true;
+    }
+
+    // ==================== HTML 刺激生成（左右两个方框） ====================
+    function generateNoiseSquares() {
+        let html = '';
+        for (let i = 0; i < 100; i++) {
+            const size = Math.random() * 32 + 16;
+            const left = Math.random() * (240 - size);
+            const top = Math.random() * (240 - size);
+            const r = Math.floor(Math.random() * 256);
+            const g = Math.floor(Math.random() * 256);
+            const b = Math.floor(Math.random() * 256);
+            html += `<div class="noise-square" style="left:${left}px;top:${top}px;width:${size}px;height:${size}px;background-color:rgba(${r},${g},${b},${PARAMS.MASK_OPACITY});"></div>`;
+        }
+        return html;
+    }
+
+    function generateMask() {
+        let html = '<div class="experiment-container">';
+        html += '<div class="frame-container frame-left"><div class="inner-frame"></div>' + generateNoiseSquares() + '</div>';
+        html += '<div class="frame-container frame-right"><div class="inner-frame"></div>' + generateNoiseSquares() + '</div>';
+        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
+        html += '</div>';
+        return html;
+    }
+
+    function generateFixation(showError) {
+        let html = '<div class="experiment-container">';
+        html += '<div class="frame-container frame-left"><div class="inner-frame"></div></div>';
+        html += '<div class="frame-container frame-right"><div class="inner-frame"></div></div>';
+        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
+        if (showError) {
+            html += '<div class="fixation-cross-error fix-h-error"></div>';
+            html += '<div class="fixation-cross-error fix-v-error"></div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /** 左右两框同时呈现两张面孔 */
+    function generateCueStimulus(neutralSide, neutralUrl, negativeUrl) {
+        const leftUrl = neutralSide === 'left' ? neutralUrl : negativeUrl;
+        const rightUrl = neutralSide === 'left' ? negativeUrl : neutralUrl;
+        let html = '<div class="experiment-container">';
+        html += '<div class="frame-container frame-left"><div class="inner-frame">';
+        html += `<img src="${leftUrl}" class="stimulus-image" style="opacity:${PARAMS.IMAGE_OPACITY};">`;
+        html += '</div></div>';
+        html += '<div class="frame-container frame-right"><div class="inner-frame">';
+        html += `<img src="${rightUrl}" class="stimulus-image" style="opacity:${PARAMS.IMAGE_OPACITY};">`;
+        html += '</div></div>';
+        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
+        html += '</div>';
+        return html;
+    }
+
+    function generateTargetStimulus(arrowSide, arrowDirection) {
+        const arrow = arrowDirection === 'left' ? '\u2190' : '\u2192';
+        let html = '<div class="experiment-container">';
+        html += '<div class="frame-container frame-left"><div class="inner-frame"></div>';
+        if (arrowSide === 'left') {
+            html += `<div class="arrow-stimulus" style="left:50%;top:50%;margin-left:-32px;margin-top:-32px;">${arrow}</div>`;
+        }
+        html += '</div>';
+        html += '<div class="frame-container frame-right"><div class="inner-frame"></div>';
+        if (arrowSide === 'right') {
+            html += `<div class="arrow-stimulus" style="left:50%;top:50%;margin-left:-32px;margin-top:-32px;">${arrow}</div>`;
+        }
+        html += '</div>';
+        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
+        html += '</div>';
+        return html;
+    }
+
+    function pushHtmlFrameTrials(trialTimeline, count, stimulusFn, extraData) {
+        for (let f = 0; f < count; f++) {
+            trialTimeline.push({
+                type: jsPsychHtmlKeyboardResponse,
+                stimulus: stimulusFn,
+                choices: 'NO_KEYS',
+                trial_duration: PARAMS.FRAME_MS,
+                data: Object.assign({ frame_index: f, frame_count: count }, extraData || {})
+            });
+        }
+    }
+
+    // ==================== 引导流程 ====================
+    timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: `
+        <div style="text-align:center;font-size:24px;line-height:2;color:white;">
+            <p style="font-size:32px;font-weight:bold;">无意识注意转移训练</p>
+            <p style="margin-top:30px;">实验需要在全屏模式下进行</p>
+            <p style="margin-top:20px;color:#FF5722;"><strong>按任意键进入全屏</strong></p>
+        </div>`,
+        on_finish: function() {
+            const el = document.documentElement;
+            if (el.requestFullscreen) el.requestFullscreen();
+            else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        }
+    });
+
+    // 全屏后检测屏幕刷新率，校准每帧时长
+    timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: `
+        <div style="text-align:center;color:white;font-size:22px;line-height:2;">
+            <p id="refresh-progress">正在检测屏幕刷新率，请稍候...</p>
+            <p id="refresh-result" style="font-size:18px;color:#ccc;margin-top:20px;"></p>
+        </div>`,
+        choices: 'NO_KEYS',
+        on_load: function() {
+            measureRefreshRate(120).then(function(info) {
+                applyRefreshRate(info);
+                jsPsych.data.addProperties({
+                    screen_refresh_hz_measured: refreshRateInfo.measured_hz,
+                    screen_refresh_hz_used: refreshRateInfo.used_hz,
+                    frame_ms: refreshRateInfo.frame_ms
+                });
+                const resultEl = document.getElementById('refresh-result');
+                if (resultEl) {
+                    resultEl.innerHTML =
+                        '测量值约 <strong style="color:#4CAF50;">' + refreshRateInfo.measured_hz + ' Hz</strong><br>' +
+                        '实验按 <strong style="color:#2196F3;">' + refreshRateInfo.used_hz + ' Hz</strong> 校准' +
+                        '（每帧 ' + refreshRateInfo.frame_ms.toFixed(2) + ' ms）';
+                }
+                const progEl = document.getElementById('refresh-progress');
+                if (progEl) progEl.textContent = '刷新率检测完成';
+                setTimeout(function() { jsPsych.finishTrial(); }, 1800);
+            });
+        }
+    });
+
+    timeline.push({
+        type: jsPsychSurveyText,
+        questions: [
+            { prompt: '被试编号:', name: 'subjectID', required: true },
+            { prompt: '训练天数:', name: 'trainingDay', required: true },
+            { prompt: '开始轮数:', name: 'startRun', required: true }
+        ],
+        on_finish: function(data) {
+            experimentData.subjectID = data.response.subjectID;
+            experimentData.trainingDay = data.response.trainingDay;
+            experimentData.startRun = parseInt(data.response.startRun, 10) || 1;
+            experimentData.currentRun = experimentData.startRun;
+            jsPsych.data.addProperties({
+                subject_id: experimentData.subjectID,
+                training_day: experimentData.trainingDay
+            });
+        }
+    });
+
+    timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: '<p id="loadmsg" style="color:white;font-size:22px;text-align:center;">正在加载实验图片，请稍候...</p>',
+        choices: 'NO_KEYS',
+        on_load: function() {
+            preloadAllImages().then(function() {
+                const el = document.getElementById('loadmsg');
+                if (el) el.textContent = '图片加载完成！';
+                jsPsych.finishTrial();
+            }).catch(function() {
+                const el = document.getElementById('loadmsg');
+                if (el) el.textContent = '图片加载失败，请检查网络后刷新页面。';
+            });
+        }
+    });
+
+    timeline.push({
+        type: jsPsychInstructions,
+        pages: [
+            '<p style="font-size:24px;">欢迎参加无意识注意转移训练</p>' +
+            '<p>左右<strong>两个方框</strong>内会同时呈现两张面孔（中性面孔与消极面孔），仅呈现 <strong>1 帧</strong>。</p>' +
+            '<p>由于前掩蔽与后掩蔽（不透明色块）的作用，您通常<strong>无法清楚看到</strong>这些图片。</p>',
+            '<p style="font-size:20px;">您的任务：</p>' +
+            '<p>面孔消失后出现箭头（← 或 →）。</p>' +
+            '<p>箭头指向<strong>左边</strong>按 <strong>N</strong>，指向<strong>右边</strong>按 <strong>M</strong>。</p>' +
+            '<p>请注视中央白色十字，尽可能快速且准确地反应。</p>',
+            '<p>目标箭头始终出现在<strong>中性面孔</strong>位置，</p>' +
+            '<p>通过反复练习，引导注意从消极刺激转向中性刺激。</p>' +
+            '<p>准备好后按空格键开始。</p>'
+        ],
+        show_clickable_nav: true,
+        button_label_next: '下一页',
+        button_label_previous: '上一页',
+        on_finish: function() { document.body.classList.add('hide-cursor'); }
+    });
+
+    // ==================== 单试次（逐帧呈现） ====================
+    function createTrial(trialNum, blockNum, pairIndex) {
+        const trialTimeline = [];
+        const pair = IMAGE_PAIRS[pairIndex];
+        const neutralUrl = IMAGE_BASE + pair.neutral;
+        const negativeUrl = IMAGE_BASE + pair.negative;
+
+        const neutralSide = Math.random() < 0.5 ? 'left' : 'right';
+        const leftImageType = neutralSide === 'left' ? pair.neutral : pair.negative;
+        const rightImageType = neutralSide === 'left' ? pair.negative : pair.neutral;
+        const arrowDirection = Math.random() < 0.5 ? 'left' : 'right';
+        const arrowSide = neutralSide;
+
+        // 1. 注视点
+        pushHtmlFrameTrials(trialTimeline, PARAMS.FIXATION_FRAMES,
+            function() { return generateFixation(false); },
+            { trial_type: 'fixation', trial_number: trialNum, block_number: blockNum });
+
+        // 2. 前掩蔽
+        pushHtmlFrameTrials(trialTimeline, PARAMS.MASK_FRAMES,
+            function() { return generateMask(); },
+            { trial_type: 'forward_mask', trial_number: trialNum, block_number: blockNum });
+
+        // 3. 线索：两框同时呈现两张面孔（1帧）
+        pushHtmlFrameTrials(trialTimeline, PARAMS.CUE_FRAMES,
+            function() { return generateCueStimulus(neutralSide, neutralUrl, negativeUrl); },
+            {
+                trial_type: 'cue',
+                trial_number: trialNum,
+                block_number: blockNum,
+                neutral_side: neutralSide,
+                neutral_image: pair.neutral,
+                negative_image: pair.negative,
+                left_image: leftImageType,
+                right_image: rightImageType,
+                image_opacity: PARAMS.IMAGE_OPACITY
+            });
+
+        // 4. 后掩蔽
+        pushHtmlFrameTrials(trialTimeline, PARAMS.MASK_FRAMES,
+            function() { return generateMask(); },
+            { trial_type: 'backward_mask', trial_number: trialNum, block_number: blockNum });
+
+        // 5. ISI
+        pushHtmlFrameTrials(trialTimeline, PARAMS.ISI_FRAMES,
+            function() { return generateFixation(false); },
+            { trial_type: 'isi', trial_number: trialNum, block_number: blockNum });
+
+        // 6. 目标刺激
+        trialTimeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateTargetStimulus(arrowSide, arrowDirection),
+            choices: ['n', 'm'],
+            trial_duration: PARAMS.TARGET_TIME,
+            response_ends_trial: false,
+            data: {
+                trial_type: 'target',
+                trial_number: trialNum,
+                block_number: blockNum,
+                arrow_side: arrowSide,
+                arrow_direction: arrowDirection,
+                correct_response: arrowDirection === 'left' ? 'n' : 'm',
+                neutral_side: neutralSide,
+                left_image: leftImageType,
+                right_image: rightImageType,
+                arrow_position: arrowSide === 'left' ? 1 : 2,
+                arrow_orient: arrowDirection === 'left' ? 1 : 2
+            }
+        });
+
+        // 7. 反应窗口
+        trialTimeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixation(false),
+            choices: ['n', 'm'],
+            trial_duration: PARAMS.RESPONSE_DEADLINE - PARAMS.TARGET_TIME,
+            data: {
+                trial_type: 'response_window',
+                trial_number: trialNum,
+                block_number: blockNum,
+                arrow_direction: arrowDirection,
+                correct_response: arrowDirection === 'left' ? 'n' : 'm',
+                neutral_side: neutralSide,
+                left_image: leftImageType,
+                right_image: rightImageType,
+                arrow_position: arrowSide === 'left' ? 1 : 2,
+                arrow_orient: arrowDirection === 'left' ? 1 : 2,
+                cue_frames: PARAMS.CUE_FRAMES,
+                mask_frames: PARAMS.MASK_FRAMES
+            },
+            on_finish: function(data) {
+                const allData = jsPsych.data.get().filter({
+                    trial_number: trialNum,
+                    block_number: blockNum
+                });
+                const targetData = allData.filter({ trial_type: 'target' }).values()[0];
+                let response = null;
+                let rt = null;
+                if (targetData && targetData.response) {
+                    response = targetData.response;
+                    rt = targetData.rt;
+                } else if (data.response) {
+                    response = data.response;
+                    rt = targetData ? (targetData.trial_duration + data.rt) : data.rt;
+                }
+                data.final_response = response;
+                data.final_response_code = response === 'n' ? 1 : (response === 'm' ? 2 : null);
+                data.final_rt = rt;
+                data.correct = response === data.correct_response;
+                data.correct_code = data.correct ? 1 : 0;
+                data.trial_order = (blockNum - 1) * PARAMS.TRIAL_N + trialNum;
+                data.show_error_feedback = (response !== null && !data.correct);
+            }
+        });
+
+        // 8. 错误反馈
+        trialTimeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: generateFixation(false),
+            choices: 'NO_KEYS',
+            trial_duration: 1,
+            data: { trial_type: 'error_feedback', trial_number: trialNum, block_number: blockNum },
+            on_start: function(trial) {
+                const last = jsPsych.data.get()
+                    .filter({ trial_number: trialNum, block_number: blockNum, trial_type: 'response_window' })
+                    .values()[0];
+                if (last && last.show_error_feedback) {
+                    trial.stimulus = generateFixation(true);
+                    trial.trial_duration = 300;
+                } else {
+                    trial.trial_duration = 1;
+                }
+            }
+        });
+
+        // 9. ITI
+        const itiFrames = Math.max(6, Math.round((Math.random() * 500 + 100) / PARAMS.FRAME_MS));
+        pushHtmlFrameTrials(trialTimeline, itiFrames,
+            function() { return generateFixation(false); },
+            { trial_type: 'iti', trial_number: trialNum, block_number: blockNum });
+
+        return { timeline: trialTimeline };
+    }
+
+    function createRunTimeline(blockNum) {
+        const pairIndices = [];
+        for (let i = 0; i < PARAMS.TRIAL_N; i++) {
+            pairIndices.push(i % IMAGE_PAIRS.length);
+        }
+        shuffleArray(pairIndices);
+        const runTimeline = [];
+        for (let i = 0; i < PARAMS.TRIAL_N; i++) {
+            runTimeline.push(createTrial(i + 1, blockNum, pairIndices[i]));
+        }
+        return runTimeline;
+    }
+
+    function shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
+
+    // ==================== Block 循环 ====================
+    for (let block = 1; block <= PARAMS.RUN_NUM; block++) {
+        timeline.push({
+            type: jsPsychHtmlKeyboardResponse,
+            stimulus: function() {
+                return `<p style="font-size:24px;color:yellow;">等待开始 Block ${block}/${PARAMS.RUN_NUM}，按 S 键继续</p>`;
+            },
+            choices: ['s'],
+            on_finish: function() { experimentData.currentRun = block; }
+        });
+        timeline = timeline.concat(createRunTimeline(block));
+        if (block < PARAMS.RUN_NUM) {
+            timeline.push({
+                type: jsPsychHtmlKeyboardResponse,
+                stimulus: function() {
+                    const trials = jsPsych.data.get().filter({ trial_type: 'response_window', block_number: block });
+                    const correct = trials.filter({ correct: true });
+                    const acc = trials.count() > 0 ? Math.round(correct.count() / trials.count() * 100) : 0;
+                    const avgRt = correct.count() > 0 ? Math.round(correct.select('final_rt').mean()) : 0;
+                    return `<div style="font-size:22px;text-align:center;line-height:2;color:white;">
+                        <p style="font-size:28px;color:#4CAF50;">Block ${block}/${PARAMS.RUN_NUM} 完成</p>
+                        <p>正确率: <strong style="color:#2196F3;">${acc}%</strong></p>
+                        <p>平均反应时: <strong style="color:#2196F3;">${avgRt} ms</strong></p>
+                        <p style="margin-top:30px;">按 <strong>S</strong> 键继续</p>
+                    </div>`;
+                },
+                choices: ['s']
+            });
+        }
+    }
+
+    timeline.push({
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: function() {
+            const trials = jsPsych.data.get().filter({ trial_type: 'response_window' });
+            const correct = trials.filter({ correct: true });
+            const acc = trials.count() > 0 ? Math.round(correct.count() / trials.count() * 100) : 0;
+            const avgRt = correct.count() > 0 ? Math.round(correct.select('final_rt').mean()) : 0;
+            return `<div style="font-size:24px;text-align:center;line-height:2;color:white;">
+                <p style="font-size:32px;color:#4CAF50;">训练结束，感谢参与！</p>
+                <p>总正确率: <strong style="color:#2196F3;">${acc}%</strong></p>
+                <p>平均反应时: <strong style="color:#2196F3;">${avgRt} ms</strong></p>
+                <p style="margin-top:40px;color:#FF5722;">按<strong>空格键</strong>下载数据</p>
+            </div>`;
+        },
+        choices: [' ']
+    });
+
+    function displayResults() {
+        const trials = jsPsych.data.get().filter({ trial_type: 'response_window' });
+        const trialsData = trials.values().map(t => ({
+            trial_order: t.trial_order || '',
+            block_number: t.block_number || '',
+            trial_number: t.trial_number || '',
+            neutral_side: t.neutral_side || '',
+            left_image: t.left_image || '',
+            right_image: t.right_image || '',
+            arrow_position: t.arrow_position || '',
+            arrow_orient: t.arrow_orient || '',
+            cue_frames: t.cue_frames || PARAMS.CUE_FRAMES,
+            mask_frames: t.mask_frames || PARAMS.MASK_FRAMES,
+            final_response_code: t.final_response_code ?? '',
+            correct_code: t.correct_code ?? '',
+            final_rt: t.final_rt || ''
+        }));
+        downloadCSV(
+            'screen_refresh_hz_measured,' + refreshRateInfo.measured_hz + '\n' +
+            'screen_refresh_hz_used,' + refreshRateInfo.used_hz + '\n' +
+            'frame_ms,' + refreshRateInfo.frame_ms.toFixed(4) + '\n\n' +
+            convertToCSV(trialsData),
+            `Depression_UNconscious_training_${experimentData.subjectID}_Day${experimentData.trainingDay}.csv`
+        );
+    }
+
+    function convertToCSV(data) {
+        if (data.length === 0) return '';
+        const headers = Object.keys(data[0]);
+        let csv = headers.join(',') + '\n';
+        data.forEach(row => {
+            csv += headers.map(h => {
+                const v = row[h];
+                if (v === null || v === undefined || v === '') return '';
+                return String(v).includes(',') ? `"${v}"` : v;
+            }).join(',') + '\n';
+        });
+        return csv;
+    }
+
+    function downloadCSV(content, filename) {
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    jsPsych.run(timeline);
+</script>
+</html>
