@@ -12,15 +12,18 @@
     <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3/dist/index.browser.min.js"></script>
 
     <style>
-        body { background-color: #7F7F7F; cursor: default; }
+        body, #jspsych-content, .jspsych-content-wrapper {
+            background-color: #FFFF00 !important;
+            cursor: default;
+        }
         body.hide-cursor { cursor: none; }
         .experiment-container {
             width: 800px; height: 288px; margin: 0 auto;
-            position: relative; background-color: #7F7F7F;
+            position: relative; background-color: #FFFF00;
         }
         .frame-container {
             width: 240px; height: 240px; border: 2px solid black;
-            position: absolute; top: 24px; background-color: #7F7F7F;
+            position: absolute; top: 24px; background-color: #FFFF00;
         }
         .frame-left { left: 0; }
         .frame-right { right: 0; }
@@ -34,13 +37,12 @@
             object-fit: contain; top: 0; left: 0;
         }
         .arrow-stimulus {
-            position: absolute; font-size: 64px; font-weight: bold; color: #484848;
+            position: absolute; font-size: 64px; font-weight: bold; color: #222222;
             width: 64px; height: 64px; line-height: 64px; text-align: center;
         }
-        .fixation-cross { position: absolute; background-color: white; left: 50%; top: 50%; }
+        .fixation-cross { position: absolute; background-color: black; left: 50%; top: 50%; }
         .fix-h { width: 18px; height: 2px; margin-left: -9px; margin-top: -1px; }
         .fix-v { width: 2px; height: 18px; margin-left: -1px; margin-top: -9px; }
-        .noise-square { position: absolute; }
         .feedback-emoji {
             position: absolute; left: 50%; top: 50%;
             transform: translate(-50%, -50%);
@@ -62,12 +64,12 @@
         FIXATION_FRAMES: 30,
         CUE_FRAMES: 10,
         CFF_FLICKER_HZ: 50,
-        MASK_FRAMES: 16,
+        CUE_DURATION_MS: 100,
         ISI_FRAMES: 3,
         TARGET_TIME: 100,
         RESPONSE_DEADLINE: 2000,
         FEEDBACK_TIME: 500,
-        MASK_OPACITY: 1.0
+        BG_COLOR: '#FFFF00'
     };
 
     const STIMULI_BASE = './stimuli/';
@@ -80,7 +82,6 @@
 
     const ALL_IMAGE_URLS = [];
     ['happy', 'neutral', 'sad'].forEach(function(emo) {
-        ALL_IMAGE_URLS.push(STIMULI_BASE + emo + '_alternate.png');
         ALL_IMAGE_URLS.push(STIMULI_BASE + emo + '_red.png');
         ALL_IMAGE_URLS.push(STIMULI_BASE + emo + '_green.png');
     });
@@ -152,7 +153,7 @@
             raw_median_ms: Math.round(info.rawMedianMs * 100) / 100
         };
         PARAMS.FRAME_MS = info.frameMs;
-        PARAMS.CUE_FRAMES = Math.max(8, Math.round((1000 / PARAMS.CFF_FLICKER_HZ) * 10 / PARAMS.FRAME_MS));
+        PARAMS.CUE_FRAMES = Math.max(6, Math.round(PARAMS.CUE_DURATION_MS / PARAMS.FRAME_MS));
     }
 
     const jsPsych = initJsPsych({
@@ -180,33 +181,6 @@
             const img = await loadImage(url);
             imageCache[url] = img;
         }
-    }
-
-    function generateNoiseSquares() {
-        let html = '';
-        for (let i = 0; i < 100; i++) {
-            const size = Math.random() * 32 + 16;
-            const left = Math.random() * (240 - size);
-            const top = Math.random() * (240 - size);
-            const r = Math.floor(Math.random() * 256);
-            const g = Math.floor(Math.random() * 256);
-            const b = Math.floor(Math.random() * 256);
-            html += '<div class="noise-square" style="left:' + left + 'px;top:' + top +
-                'px;width:' + size + 'px;height:' + size + 'px;background-color:rgba(' +
-                r + ',' + g + ',' + b + ',' + PARAMS.MASK_OPACITY + ');"></div>';
-        }
-        return html;
-    }
-
-    function generateMask() {
-        let html = '<div class="experiment-container">';
-        html += '<div class="frame-container frame-left"><div class="inner-frame"></div>' +
-            generateNoiseSquares() + '</div>';
-        html += '<div class="frame-container frame-right"><div class="inner-frame"></div>' +
-            generateNoiseSquares() + '</div>';
-        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
-        html += '</div>';
-        return html;
     }
 
     function generateFixation() {
@@ -306,11 +280,12 @@
 
     timeline.push({
         type: jsPsychHtmlKeyboardResponse,
-        stimulus: '<div style="text-align:center;font-size:24px;line-height:2;color:white;">' +
+        stimulus: '<div style="text-align:center;font-size:24px;line-height:2;color:#222;">' +
             '<p style="font-size:32px;font-weight:bold;">CFF 无意识注意转移训练</p>' +
-            '<p style="margin-top:30px;">实验需要在全屏模式下进行</p>' +
-            '<p style="margin-top:20px;color:#FF5722;"><strong>按任意键进入全屏</strong></p></div>',
+            '<p style="margin-top:30px;">实验界面为<strong>黄色背景</strong>，需在全屏模式下进行</p>' +
+            '<p style="margin-top:20px;color:#C62828;"><strong>按任意键进入全屏</strong></p></div>',
         on_finish: function() {
+            document.body.style.backgroundColor = PARAMS.BG_COLOR;
             const el = document.documentElement;
             if (el.requestFullscreen) el.requestFullscreen();
             else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
@@ -319,9 +294,9 @@
 
     timeline.push({
         type: jsPsychHtmlKeyboardResponse,
-        stimulus: '<div style="text-align:center;color:white;font-size:22px;line-height:2;">' +
+        stimulus: '<div style="text-align:center;color:#222;font-size:22px;line-height:2;">' +
             '<p id="refresh-progress">正在检测屏幕刷新率，请稍候...</p>' +
-            '<p id="refresh-result" style="font-size:18px;color:#ccc;margin-top:20px;"></p></div>',
+            '<p id="refresh-result" style="font-size:18px;color:#444;margin-top:20px;"></p></div>',
         choices: 'NO_KEYS',
         on_load: function() {
             measureRefreshRate(120).then(function(info) {
@@ -330,7 +305,7 @@
                     screen_refresh_hz_measured: refreshRateInfo.measured_hz,
                     screen_refresh_hz_used: refreshRateInfo.used_hz,
                     frame_ms: refreshRateInfo.frame_ms,
-                    training_mode: 'unconscious_cff_emoji',
+                    training_mode: 'unconscious_cff_emoji_no_mask',
                     cff_flicker_hz: PARAMS.CFF_FLICKER_HZ,
                     cue_frames: PARAMS.CUE_FRAMES
                 });
@@ -341,8 +316,8 @@
                         ' Hz</strong><br>实验按 <strong style="color:#2196F3;">' +
                         refreshRateInfo.used_hz + ' Hz</strong> 校准（每帧 ' +
                         refreshRateInfo.frame_ms.toFixed(2) + ' ms）<br>' +
-                        'CFF 线索呈现 <strong style="color:#FFD700;">' + PARAMS.CUE_FRAMES +
-                        ' 帧</strong>（红绿交替约 ' + PARAMS.CFF_FLICKER_HZ + ' Hz）';
+                        'CFF 线索呈现 <strong style="color:#C62828;">' + PARAMS.CUE_FRAMES +
+                        ' 帧</strong>（红/绿帧交替约 ' + PARAMS.CFF_FLICKER_HZ + ' Hz，与黄底融合）';
                 }
                 const progEl = document.getElementById('refresh-progress');
                 if (progEl) progEl.textContent = '刷新率检测完成';
@@ -372,7 +347,7 @@
 
     timeline.push({
         type: jsPsychHtmlKeyboardResponse,
-        stimulus: '<p id="loadmsg" style="color:white;font-size:22px;text-align:center;">正在加载 CFF emoji 刺激，请稍候...</p>',
+        stimulus: '<p id="loadmsg" style="color:#222;font-size:22px;text-align:center;">正在加载 CFF emoji 刺激，请稍候...</p>',
         choices: 'NO_KEYS',
         on_load: function() {
             preloadAllImages().then(function() {
@@ -390,16 +365,16 @@
         type: jsPsychInstructions,
         pages: [
             '<p style="font-size:24px;">欢迎参加 CFF 无意识注意转移训练</p>' +
-            '<p>左右<strong>两个方框</strong>内会呈现两种情绪的 emoji 线条图（如开心与难过）。</p>' +
-            '<p>刺激采用<strong>临界闪烁融合（CFF）</strong>技术：红/绿线条在黄色背景上高速交替闪烁，' +
-            '使表情在意识层面难以察觉，但可在阈下水平加工情绪信息。</p>',
+            '<p>整个实验界面为<strong>黄色背景</strong>，左右两个方框内会呈现两种情绪的 emoji 线条图。</p>' +
+            '<p>刺激采用<strong>临界闪烁融合（CFF）</strong>：纯红帧与纯绿帧在黄色背景上高速交替闪烁，' +
+            '红绿线条与黄底融合，使表情在意识层面“消失”，实现阈下情绪呈现。<strong>不使用彩色掩蔽。</strong></p>',
             '<p style="font-size:20px;">您的任务：</p>' +
             '<p>表情消失后出现箭头（← 或 →）。</p>' +
             '<p>箭头指向<strong>左边</strong>按 <strong>N</strong>，指向<strong>右边</strong>按 <strong>M</strong>。</p>' +
-            '<p>请注视中央白色十字，尽可能快速且准确地反应。</p>' +
-            '<p style="color:#FFD700;">反馈：判断正确时中央出现开心表情😊，错误时出现红色 X，持续 500ms。</p>' +
+            '<p>请注视中央黑色十字，尽可能快速且准确地反应。</p>' +
+            '<p style="color:#C62828;">反馈：判断正确时中央出现开心表情😊，错误时出现红色 X，持续 500ms。</p>' +
             '<p>目标箭头始终出现在<strong>中性/积极情绪 emoji</strong>位置，引导注意远离消极情绪。</p>' +
-            '<p>由于前掩蔽、CFF 闪烁与后掩蔽的作用，您通常<strong>无法清楚看到</strong>表情。</p>' +
+            '<p>由于 CFF 闪烁与黄色背景融合，您通常<strong>无法清楚看到</strong>表情轮廓。</p>' +
             '<p>准备好后按空格键开始。</p>'
         ],
         show_clickable_nav: true,
@@ -425,10 +400,6 @@
             function() { return generateFixation(); },
             { trial_type: 'fixation', trial_number: trialNum, block_number: blockNum });
 
-        pushHtmlFrameTrials(trialTimeline, PARAMS.MASK_FRAMES,
-            function() { return generateMask(); },
-            { trial_type: 'forward_mask', trial_number: trialNum, block_number: blockNum });
-
         pushCFFCueTrials(trialTimeline, neutralSide, neutralEmo, negativeEmo, {
             trial_type: 'cue',
             trial_number: trialNum,
@@ -441,10 +412,6 @@
             cue_mode: 'cff_flicker',
             cff_flicker_hz: PARAMS.CFF_FLICKER_HZ
         });
-
-        pushHtmlFrameTrials(trialTimeline, PARAMS.MASK_FRAMES,
-            function() { return generateMask(); },
-            { trial_type: 'backward_mask', trial_number: trialNum, block_number: blockNum });
 
         pushHtmlFrameTrials(trialTimeline, PARAMS.ISI_FRAMES,
             function() { return generateFixation(); },
@@ -492,8 +459,8 @@
                 arrow_position: arrowSide === 'left' ? 1 : 2,
                 arrow_orient: arrowDirection === 'left' ? 1 : 2,
                 cue_frames: PARAMS.CUE_FRAMES,
-                mask_frames: PARAMS.MASK_FRAMES,
-                cff_flicker_hz: PARAMS.CFF_FLICKER_HZ
+                cff_flicker_hz: PARAMS.CFF_FLICKER_HZ,
+                cue_mode: 'cff_flicker_no_mask'
             },
             on_finish: function(data) {
                 const allData = jsPsych.data.get().filter({
@@ -570,7 +537,7 @@
         timeline.push({
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() {
-                return '<p style="font-size:24px;color:yellow;">等待开始 Block ' + block +
+                return '<p style="font-size:24px;color:#222;">等待开始 Block ' + block +
                     '/' + PARAMS.RUN_NUM + '，按 S 键继续</p>';
             },
             choices: ['s'],
@@ -590,7 +557,7 @@
                         Math.round(correct.count() / trials.count() * 100) : 0;
                     const avgRt = correct.count() > 0 ?
                         Math.round(correct.select('final_rt').mean()) : 0;
-                    return '<div style="font-size:22px;text-align:center;line-height:2;color:white;">' +
+                    return '<div style="font-size:22px;text-align:center;line-height:2;color:#222;">' +
                         '<p style="font-size:28px;color:#4CAF50;">Block ' + block + '/' +
                         PARAMS.RUN_NUM + ' 完成</p>' +
                         '<p>正确率: <strong style="color:#2196F3;">' + acc + '%</strong></p>' +
@@ -611,7 +578,7 @@
                 Math.round(correct.count() / trials.count() * 100) : 0;
             const avgRt = correct.count() > 0 ?
                 Math.round(correct.select('final_rt').mean()) : 0;
-            return '<div style="font-size:24px;text-align:center;line-height:2;color:white;">' +
+            return '<div style="font-size:24px;text-align:center;line-height:2;color:#222;">' +
                 '<p style="font-size:32px;color:#4CAF50;">训练结束，感谢参与！</p>' +
                 '<p>总正确率: <strong style="color:#2196F3;">' + acc + '%</strong></p>' +
                 '<p>平均反应时: <strong style="color:#2196F3;">' + avgRt + ' ms</strong></p>' +
@@ -636,14 +603,15 @@
                 arrow_orient: t.arrow_orient || '',
                 cue_frames: t.cue_frames || PARAMS.CUE_FRAMES,
                 cff_flicker_hz: t.cff_flicker_hz || PARAMS.CFF_FLICKER_HZ,
-                mask_frames: t.mask_frames || PARAMS.MASK_FRAMES,
+                cue_mode: t.cue_mode || 'cff_flicker_no_mask',
                 final_response_code: t.final_response_code ?? '',
                 correct_code: t.correct_code ?? '',
                 final_rt: t.final_rt || ''
             };
         });
         downloadCSV(
-            'training_mode,unconscious_cff_emoji\n' +
+            'training_mode,unconscious_cff_emoji_no_mask\n' +
+            'background_color,' + PARAMS.BG_COLOR + '\n' +
             'screen_refresh_hz_measured,' + refreshRateInfo.measured_hz + '\n' +
             'screen_refresh_hz_used,' + refreshRateInfo.used_hz + '\n' +
             'frame_ms,' + refreshRateInfo.frame_ms.toFixed(4) + '\n' +
