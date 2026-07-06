@@ -5,124 +5,51 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>有意识注意转移训练</title>
 
-    <!-- jsPsych 7 CDN（browser 构建 + 独立插件包） -->
     <script src="https://unpkg.com/jspsych@7.3.4/dist/index.browser.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css">
     <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3/dist/index.browser.min.js"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-canvas-keyboard-response@1.1.3/dist/index.browser.min.js"></script>
     <script src="https://unpkg.com/@jspsych/plugin-instructions@1.1.3/dist/index.browser.min.js"></script>
     <script src="https://unpkg.com/@jspsych/plugin-survey-text@1.1.3/dist/index.browser.min.js"></script>
 
     <style>
-        body {
-            background-color: #7F7F7F;
-            cursor: default;
-        }
-
-        body.hide-cursor {
-            cursor: none;
-        }
-
-        .experiment-container {
-            width: 800px;
-            height: 288px;
-            margin: 0 auto;
-            position: relative;
-            background-color: #7F7F7F;
-        }
-
-        .frame-container {
-            width: 240px;
-            height: 240px;
-            border: 2px solid black;
+        body { background-color: #7F7F7F; cursor: default; }
+        body.hide-cursor { cursor: none; }
+        canvas {
             position: absolute;
-            top: 24px;
-            background-color: #7F7F7F;
-        }
-
-        .frame-left { left: 0; }
-        .frame-right { right: 0; }
-
-        .inner-frame {
-            position: absolute;
-            top: 16px;
-            left: 16px;
-            width: 206px;
-            height: 206px;
-            border: 2px solid black;
-            overflow: hidden;
-        }
-
-        .stimulus-image {
-            position: absolute;
-            width: 206px;
-            height: 206px;
-            object-fit: cover;
-            top: 0;
-            left: 0;
-        }
-
-        .arrow-stimulus {
-            position: absolute;
-            font-size: 64px;
-            font-weight: bold;
-            color: #484848;
-            width: 64px;
-            height: 64px;
-            line-height: 64px;
-            text-align: center;
-        }
-
-        .fixation-cross {
-            position: absolute;
-            background-color: white;
-            left: 50%;
             top: 50%;
-        }
-
-        .fixation-cross-error {
-            position: absolute;
-            background-color: red;
             left: 50%;
-            top: 50%;
-            z-index: 10;
-        }
-
-        .fix-h {
-            width: 18px;
-            height: 2px;
-            margin-left: -9px;
-            margin-top: -1px;
-        }
-
-        .fix-v {
-            width: 2px;
-            height: 18px;
-            margin-left: -1px;
-            margin-top: -9px;
-        }
-
-        .noise-square {
-            position: absolute;
+            transform: translate(-50%, -50%);
         }
     </style>
 </head>
 <body></body>
 <script>
-    // ==================== 实验参数 ====================
-    const TRIAL_N = 80;
-    const RUN_NUM = 8;
-    const FIXATION_TIME = 500;
-    const CUE_TIME = 500;         // 有意识呈现，面孔可清晰辨认
-    const MASK_TIME = 267;        // 约16帧，前/后掩蔽（低透明度色块）
-    const ISI_TIME = 50;
-    const TARGET_TIME = 100;
-    const RESPONSE_DEADLINE = 2000;
-    const IMAGE_OPACITY = 1.0;    // 人脸图片完全不透明
-    const MASK_OPACITY = 0.2;     // 色块低透明度，不遮挡面孔
+    // ==================== 实验参数（帧数控制） ====================
+    const PARAMS = {
+        CANVAS_W: 800,
+        CANVAS_H: 288,
+        FRAME_SIZE: 240,
+        FRAME_TOP: 24,
+        INNER_OFFSET: 16,
+        INNER_SIZE: 206,
+        GAP: 16,
+        LUMINANCE: 127,
+        TRIAL_N: 80,
+        RUN_NUM: 8,
+        FRAME_MS: 1000 / 60,       // 单帧时长（约16.67ms @60Hz）
+        FIXATION_FRAMES: 30,       // 注视点 30帧 ≈ 500ms
+        CUE_FRAMES: 2,             // 面孔 2帧 ≈ 33ms，确保至少呈现1帧
+        MASK_FRAMES: 16,           // 掩蔽 16帧 ≈ 267ms
+        ISI_FRAMES: 3,             // ISI 3帧 ≈ 50ms
+        TARGET_TIME: 100,
+        RESPONSE_DEADLINE: 2000,
+        IMAGE_OPACITY: 1.0,        // 人脸完全不透明
+        MASK_OPACITY: 0.2          // 色块低透明度
+    };
 
     const IMAGE_BASE = 'https://gitee.com/maomx0711/depression_training/raw/master/';
 
-    // 中性(积极)与消极图片配对
     const IMAGE_PAIRS = [
         { neutral: 'O04F-76_happy.jpg', negative: 'O04F-76_sad.jpg' },
         { neutral: 'O08M-65_happy.jpg', negative: 'O08M-65_sad.jpg' },
@@ -135,6 +62,10 @@
         IMAGE_BASE + p.negative
     ]);
 
+    // 预加载到内存的 Image 对象，避免短帧内图片未加载而不显示
+    const imageCache = {};
+    let imagesReady = false;
+
     let experimentData = {
         subjectID: '',
         trainingDay: '',
@@ -145,23 +76,167 @@
     const jsPsych = initJsPsych({
         on_finish: function() {
             displayResults();
-            if (document.fullscreenElement) {
-                document.exitFullscreen();
-            }
+            if (document.fullscreenElement) document.exitFullscreen();
             document.body.classList.remove('hide-cursor');
         }
     });
 
     let timeline = [];
 
-    // ==================== 全屏与信息收集 ====================
+    // ==================== 图片预加载 ====================
+    function loadImage(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error('Failed: ' + url));
+            img.src = url;
+        });
+    }
+
+    async function preloadAllImages() {
+        for (const url of ALL_IMAGE_URLS) {
+            const img = await loadImage(url);
+            const name = url.split('/').pop();
+            imageCache[name] = img;
+        }
+        imagesReady = true;
+    }
+
+    // ==================== Canvas 绘制 ====================
+    function framePositions() {
+        const leftX = 0;
+        const rightX = PARAMS.CANVAS_W - PARAMS.FRAME_SIZE;
+        const y = PARAMS.FRAME_TOP;
+        const imgOff = PARAMS.INNER_OFFSET;
+        const imgSize = PARAMS.INNER_SIZE;
+        return {
+            leftFrame: { x: leftX, y: y, w: PARAMS.FRAME_SIZE, h: PARAMS.FRAME_SIZE },
+            rightFrame: { x: rightX, y: y, w: PARAMS.FRAME_SIZE, h: PARAMS.FRAME_SIZE },
+            leftImg: { x: leftX + imgOff, y: y + imgOff, w: imgSize, h: imgSize },
+            rightImg: { x: rightX + imgOff, y: y + imgOff, w: imgSize, h: imgSize },
+            centerX: PARAMS.CANVAS_W / 2,
+            centerY: PARAMS.CANVAS_H / 2
+        };
+    }
+
+    function drawBox(ctx, x, y, w, h) {
+        const g = PARAMS.GAP;
+        ctx.fillStyle = 'black';
+        ctx.fillRect(x, y, w, 2);
+        ctx.fillRect(x, y, 2, h);
+        ctx.fillRect(x + w - 2, y, 2, h);
+        ctx.fillRect(x, y + h - 2, w, 2);
+        ctx.fillRect(x + g, y + g, w - 2 * g, 2);
+        ctx.fillRect(x + g, y + g, 2, h - 2 * g);
+        ctx.fillRect(x + w - g - 2, y + g, 2, h - 2 * g);
+        ctx.fillRect(x + g, y + h - g - 2, w - 2 * g, 2);
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        ctx.fillRect(x, cy - 1, g, 2);
+        ctx.fillRect(x + w - g, cy - 1, g, 2);
+        ctx.fillRect(cx - 1, y, 2, g);
+        ctx.fillRect(cx - 1, y + h - g, 2, g);
+    }
+
+    function drawFixationFrame(canvas, showError) {
+        const ctx = canvas.getContext('2d');
+        const pos = framePositions();
+        ctx.fillStyle = `rgb(${PARAMS.LUMINANCE}, ${PARAMS.LUMINANCE}, ${PARAMS.LUMINANCE})`;
+        ctx.fillRect(0, 0, PARAMS.CANVAS_W, PARAMS.CANVAS_H);
+        drawBox(ctx, pos.leftFrame.x, pos.leftFrame.y, pos.leftFrame.w, pos.leftFrame.h);
+        drawBox(ctx, pos.rightFrame.x, pos.rightFrame.y, pos.rightFrame.w, pos.rightFrame.h);
+        ctx.fillStyle = 'white';
+        ctx.fillRect(pos.centerX - 9, pos.centerY - 1, 18, 2);
+        ctx.fillRect(pos.centerX - 1, pos.centerY - 9, 2, 18);
+        if (showError) {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(pos.centerX - 9, pos.centerY - 1, 18, 2);
+            ctx.fillRect(pos.centerX - 1, pos.centerY - 9, 2, 18);
+        }
+    }
+
+    function generateMaskCanvas() {
+        const c = document.createElement('canvas');
+        c.width = PARAMS.INNER_SIZE;
+        c.height = PARAMS.INNER_SIZE;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = `rgb(${PARAMS.LUMINANCE}, ${PARAMS.LUMINANCE}, ${PARAMS.LUMINANCE})`;
+        ctx.fillRect(0, 0, c.width, c.height);
+        for (let i = 0; i < 500; i++) {
+            const size = Math.random() * 32 + 8;
+            const x = Math.random() * (c.width - size);
+            const y = Math.random() * (c.height - size);
+            const r = Math.floor(Math.random() * 256);
+            const g = Math.floor(Math.random() * 256);
+            const b = Math.floor(Math.random() * 256);
+            ctx.fillStyle = `rgba(${r},${g},${b},${PARAMS.MASK_OPACITY})`;
+            ctx.fillRect(x, y, size, size);
+        }
+        return c;
+    }
+
+    const maskCanvases = [];
+    for (let i = 0; i < 30; i++) maskCanvases.push(generateMaskCanvas());
+
+    function drawMask(canvas, maskIndex) {
+        const ctx = canvas.getContext('2d');
+        const pos = framePositions();
+        drawFixationFrame(canvas, false);
+        const mask = maskCanvases[maskIndex % maskCanvases.length];
+        ctx.drawImage(mask, pos.leftImg.x, pos.leftImg.y, pos.leftImg.w, pos.leftImg.h);
+        ctx.drawImage(mask, pos.rightImg.x, pos.rightImg.y, pos.rightImg.w, pos.rightImg.h);
+    }
+
+    function drawCue(canvas, leftImage, rightImage) {
+        const ctx = canvas.getContext('2d');
+        const pos = framePositions();
+        drawFixationFrame(canvas, false);
+        ctx.globalAlpha = PARAMS.IMAGE_OPACITY;
+        if (leftImage && leftImage.complete) {
+            ctx.drawImage(leftImage, pos.leftImg.x, pos.leftImg.y, pos.leftImg.w, pos.leftImg.h);
+        }
+        if (rightImage && rightImage.complete) {
+            ctx.drawImage(rightImage, pos.rightImg.x, pos.rightImg.y, pos.rightImg.w, pos.rightImg.h);
+        }
+        ctx.globalAlpha = 1.0;
+    }
+
+    function drawTarget(canvas, arrowSide, arrowDirection) {
+        const ctx = canvas.getContext('2d');
+        const pos = framePositions();
+        drawFixationFrame(canvas, false);
+        const arrow = arrowDirection === 'left' ? '\u2190' : '\u2192';
+        const frame = arrowSide === 'left' ? pos.leftFrame : pos.rightFrame;
+        const ax = frame.x + frame.w / 2;
+        const ay = frame.y + frame.h / 2;
+        ctx.fillStyle = '#484848';
+        ctx.font = 'bold 64px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(arrow, ax, ay);
+    }
+
+    function pushFrameTrials(trialTimeline, count, buildStimulus, extraData) {
+        for (let f = 0; f < count; f++) {
+            trialTimeline.push({
+                type: jsPsychCanvasKeyboardResponse,
+                stimulus: buildStimulus,
+                canvas_size: [PARAMS.CANVAS_W, PARAMS.CANVAS_H],
+                choices: 'NO_KEYS',
+                trial_duration: PARAMS.FRAME_MS,
+                data: Object.assign({ frame_index: f, frame_count: count }, extraData || {})
+            });
+        }
+    }
+
+    // ==================== 引导流程 ====================
     timeline.push({
         type: jsPsychHtmlKeyboardResponse,
         stimulus: `
-        <div style="text-align:center; font-size:24px; line-height:2; color:white;">
-            <p style="font-size:32px; font-weight:bold;">有意识注意转移训练</p>
+        <div style="text-align:center;font-size:24px;line-height:2;color:white;">
+            <p style="font-size:32px;font-weight:bold;">有意识注意转移训练</p>
             <p style="margin-top:30px;">实验需要在全屏模式下进行</p>
-            <p style="margin-top:20px; color:#FF5722;"><strong>按任意键进入全屏</strong></p>
+            <p style="margin-top:20px;color:#FF5722;"><strong>按任意键进入全屏</strong></p>
         </div>`,
         on_finish: function() {
             const el = document.documentElement;
@@ -194,23 +269,13 @@
         stimulus: '<p id="loadmsg" style="color:white;font-size:22px;text-align:center;">正在加载实验图片，请稍候...</p>',
         choices: 'NO_KEYS',
         on_load: function() {
-            const urls = ALL_IMAGE_URLS;
-            let done = 0;
-            if (urls.length === 0) {
+            preloadAllImages().then(function() {
+                const el = document.getElementById('loadmsg');
+                if (el) el.textContent = '图片加载完成！';
                 jsPsych.finishTrial();
-                return;
-            }
-            urls.forEach(function(url) {
-                const img = new Image();
-                const finish = function() {
-                    done++;
-                    const el = document.getElementById('loadmsg');
-                    if (el) el.textContent = '正在加载实验图片 ' + done + '/' + urls.length + ' ...';
-                    if (done >= urls.length) jsPsych.finishTrial();
-                };
-                img.onload = finish;
-                img.onerror = finish;
-                img.src = url;
+            }).catch(function() {
+                const el = document.getElementById('loadmsg');
+                if (el) el.textContent = '图片加载失败，请检查网络后刷新页面。';
             });
         }
     });
@@ -219,178 +284,120 @@
         type: jsPsychInstructions,
         pages: [
             '<p style="font-size:24px;">欢迎参加有意识注意转移训练</p>' +
-            '<p>屏幕上会出现两个方框，框内会同时呈现两张面孔图片（中性面孔与消极面孔）。</p>' +
-            '<p>面孔图片<strong>清晰可见</strong>，掩蔽色块为半透明，不会完全遮挡面孔。</p>',
+            '<p>左右方框内会<strong>极短暂</strong>地同时呈现中性面孔与消极面孔（约33ms，2帧）。</p>' +
+            '<p>面孔图片清晰可见（透明度1.0），掩蔽色块为半透明（透明度0.2）。</p>',
             '<p style="font-size:20px;">您的任务：</p>' +
-            '<p>图片消失后会出现一个箭头（← 或 →）。</p>' +
-            '<p>箭头指向<strong>左边</strong>时按 <strong>N</strong> 键</p>' +
-            '<p>箭头指向<strong>右边</strong>时按 <strong>M</strong> 键</p>' +
-            '<p>请注视屏幕中央的白色十字，尽可能<strong>快速且准确</strong>地反应。</p>' +
-            '<p>您可以注意到左右面孔的情绪差异，但请专注于箭头判断任务。</p>',
-            '<p>训练原理：目标箭头始终出现在<strong>中性面孔</strong>所在位置，</p>' +
-            '<p>通过有意识练习，引导注意从消极刺激转向中性刺激。</p>' +
+            '<p>面孔消失后出现箭头（← 或 →）。</p>' +
+            '<p>箭头指向<strong>左边</strong>按 <strong>N</strong>，指向<strong>右边</strong>按 <strong>M</strong>。</p>' +
+            '<p>请注视中央白色十字，尽可能快速且准确地反应。</p>',
+            '<p>目标箭头始终出现在<strong>中性面孔</strong>位置，引导注意转向中性刺激。</p>' +
             '<p>准备好后按空格键开始。</p>'
         ],
         show_clickable_nav: true,
         button_label_next: '下一页',
         button_label_previous: '上一页',
-        on_finish: function() {
-            document.body.classList.add('hide-cursor');
-        }
+        on_finish: function() { document.body.classList.add('hide-cursor'); }
     });
 
-    // ==================== 刺激生成函数 ====================
-    function generateFixation(showError) {
-        let html = '<div class="experiment-container">';
-        html += '<div class="frame-container frame-left"><div class="inner-frame"></div></div>';
-        html += '<div class="frame-container frame-right"><div class="inner-frame"></div></div>';
-        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
-        if (showError) {
-            html += '<div class="fixation-cross-error fix-h"></div>';
-            html += '<div class="fixation-cross-error fix-v"></div>';
-        }
-        html += '</div>';
-        return html;
-    }
-
-    function generateNoiseSquares() {
-        let html = '';
-        for (let i = 0; i < 100; i++) {
-            const size = Math.random() * 32 + 16;
-            const left = Math.random() * (240 - size);
-            const top = Math.random() * (240 - size);
-            const r = Math.floor(Math.random() * 256);
-            const g = Math.floor(Math.random() * 256);
-            const b = Math.floor(Math.random() * 256);
-            html += `<div class="noise-square" style="left:${left}px;top:${top}px;width:${size}px;height:${size}px;background-color:rgba(${r},${g},${b},${MASK_OPACITY});"></div>`;
-        }
-        return html;
-    }
-
-    function generateMask() {
-        let html = '<div class="experiment-container">';
-        html += '<div class="frame-container frame-left"><div class="inner-frame"></div>' + generateNoiseSquares() + '</div>';
-        html += '<div class="frame-container frame-right"><div class="inner-frame"></div>' + generateNoiseSquares() + '</div>';
-        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
-        html += '</div>';
-        return html;
-    }
-
-    function generateCueStimulus(neutralSide, neutralUrl, negativeUrl) {
-        let html = '<div class="experiment-container">';
-
-        const leftIsNeutral = neutralSide === 'left';
-        const leftUrl = leftIsNeutral ? neutralUrl : negativeUrl;
-        const rightUrl = leftIsNeutral ? negativeUrl : neutralUrl;
-
-        html += '<div class="frame-container frame-left"><div class="inner-frame">';
-        html += `<img src="${leftUrl}" class="stimulus-image" style="opacity:${IMAGE_OPACITY};">`;
-        html += '</div></div>';
-
-        html += '<div class="frame-container frame-right"><div class="inner-frame">';
-        html += `<img src="${rightUrl}" class="stimulus-image" style="opacity:${IMAGE_OPACITY};">`;
-        html += '</div></div>';
-
-        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
-        html += '</div>';
-        return html;
-    }
-
-    function generateTargetStimulus(arrowSide, arrowDirection) {
-        let html = '<div class="experiment-container">';
-        const arrow = arrowDirection === 'left' ? '←' : '→';
-
-        html += '<div class="frame-container frame-left"><div class="inner-frame"></div>';
-        if (arrowSide === 'left') {
-            html += `<div class="arrow-stimulus" style="left:50%;top:50%;margin-left:-32px;margin-top:-32px;">${arrow}</div>`;
-        }
-        html += '</div>';
-
-        html += '<div class="frame-container frame-right"><div class="inner-frame"></div>';
-        if (arrowSide === 'right') {
-            html += `<div class="arrow-stimulus" style="left:50%;top:50%;margin-left:-32px;margin-top:-32px;">${arrow}</div>`;
-        }
-        html += '</div>';
-
-        html += '<div class="fixation-cross fix-h"></div><div class="fixation-cross fix-v"></div>';
-        html += '</div>';
-        return html;
-    }
-
-    // ==================== 单试次构建 ====================
+    // ==================== 单试次（逐帧呈现） ====================
     function createTrial(trialNum, blockNum, pairIndex) {
         const trialTimeline = [];
         const pair = IMAGE_PAIRS[pairIndex];
-        const neutralUrl = IMAGE_BASE + pair.neutral;
-        const negativeUrl = IMAGE_BASE + pair.negative;
+        const neutralImg = imageCache[pair.neutral];
+        const negativeImg = imageCache[pair.negative];
 
         const neutralSide = Math.random() < 0.5 ? 'left' : 'right';
-        const negativeSide = neutralSide === 'left' ? 'right' : 'left';
-        const arrowDirection = Math.random() < 0.5 ? 'left' : 'right';
-        const arrowSide = neutralSide; // 目标始终在中性图片位置
-
+        const leftImg = neutralSide === 'left' ? neutralImg : negativeImg;
+        const rightImg = neutralSide === 'left' ? negativeImg : neutralImg;
         const leftImageType = neutralSide === 'left' ? pair.neutral : pair.negative;
         const rightImageType = neutralSide === 'left' ? pair.negative : pair.neutral;
+        const arrowDirection = Math.random() < 0.5 ? 'left' : 'right';
+        const arrowSide = neutralSide;
 
-        // 1. 注视点
-        trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateFixation(false),
-            choices: 'NO_KEYS',
-            trial_duration: FIXATION_TIME
-        });
+        const maskIndices1 = Array.from({ length: PARAMS.MASK_FRAMES }, () =>
+            Math.floor(Math.random() * maskCanvases.length));
+        const maskIndices2 = Array.from({ length: PARAMS.MASK_FRAMES }, () =>
+            Math.floor(Math.random() * maskCanvases.length));
 
-        // 2. 前掩蔽
-        trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateMask(),
-            choices: 'NO_KEYS',
-            trial_duration: MASK_TIME,
-            data: { trial_type: 'forward_mask', trial_number: trialNum, block_number: blockNum }
-        });
+        // 1. 注视点（帧控制）
+        pushFrameTrials(trialTimeline, PARAMS.FIXATION_FRAMES,
+            function(c) { drawFixationFrame(c, false); },
+            { trial_type: 'fixation', trial_number: trialNum, block_number: blockNum });
 
-        // 3. 线索：中性 + 消极图片同时呈现
-        trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateCueStimulus(neutralSide, neutralUrl, negativeUrl),
-            choices: 'NO_KEYS',
-            trial_duration: CUE_TIME,
-            data: {
-                trial_type: 'cue',
-                trial_number: trialNum,
-                block_number: blockNum,
-                neutral_side: neutralSide,
-                negative_side: negativeSide,
-                neutral_image: pair.neutral,
-                negative_image: pair.negative,
-                left_image: leftImageType,
-                right_image: rightImageType
-            }
-        });
+        // 2. 前掩蔽（逐帧）
+        for (let f = 0; f < PARAMS.MASK_FRAMES; f++) {
+            const idx = maskIndices1[f];
+            trialTimeline.push({
+                type: jsPsychCanvasKeyboardResponse,
+                stimulus: function(c) { drawMask(c, idx); },
+                canvas_size: [PARAMS.CANVAS_W, PARAMS.CANVAS_H],
+                choices: 'NO_KEYS',
+                trial_duration: PARAMS.FRAME_MS,
+                data: {
+                    trial_type: 'forward_mask',
+                    trial_number: trialNum,
+                    block_number: blockNum,
+                    frame_index: f,
+                    frame_count: PARAMS.MASK_FRAMES
+                }
+            });
+        }
 
-        // 4. 后掩蔽
-        trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateMask(),
-            choices: 'NO_KEYS',
-            trial_duration: MASK_TIME,
-            data: { trial_type: 'backward_mask', trial_number: trialNum, block_number: blockNum }
-        });
+        // 3. 线索面孔（逐帧，确保至少1帧可见）
+        for (let f = 0; f < PARAMS.CUE_FRAMES; f++) {
+            trialTimeline.push({
+                type: jsPsychCanvasKeyboardResponse,
+                stimulus: function(c) { drawCue(c, leftImg, rightImg); },
+                canvas_size: [PARAMS.CANVAS_W, PARAMS.CANVAS_H],
+                choices: 'NO_KEYS',
+                trial_duration: PARAMS.FRAME_MS,
+                data: {
+                    trial_type: 'cue',
+                    trial_number: trialNum,
+                    block_number: blockNum,
+                    frame_index: f,
+                    frame_count: PARAMS.CUE_FRAMES,
+                    neutral_side: neutralSide,
+                    neutral_image: pair.neutral,
+                    negative_image: pair.negative,
+                    left_image: leftImageType,
+                    right_image: rightImageType,
+                    image_opacity: PARAMS.IMAGE_OPACITY
+                }
+            });
+        }
+
+        // 4. 后掩蔽（逐帧）
+        for (let f = 0; f < PARAMS.MASK_FRAMES; f++) {
+            const idx = maskIndices2[f];
+            trialTimeline.push({
+                type: jsPsychCanvasKeyboardResponse,
+                stimulus: function(c) { drawMask(c, idx); },
+                canvas_size: [PARAMS.CANVAS_W, PARAMS.CANVAS_H],
+                choices: 'NO_KEYS',
+                trial_duration: PARAMS.FRAME_MS,
+                data: {
+                    trial_type: 'backward_mask',
+                    trial_number: trialNum,
+                    block_number: blockNum,
+                    frame_index: f,
+                    frame_count: PARAMS.MASK_FRAMES
+                }
+            });
+        }
 
         // 5. ISI
-        trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateFixation(false),
-            choices: 'NO_KEYS',
-            trial_duration: ISI_TIME
-        });
+        pushFrameTrials(trialTimeline, PARAMS.ISI_FRAMES,
+            function(c) { drawFixationFrame(c, false); },
+            { trial_type: 'isi', trial_number: trialNum, block_number: blockNum });
 
-        // 6. 目标刺激（箭头在中性图片位置）
+        // 6. 目标刺激
         trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateTargetStimulus(arrowSide, arrowDirection),
+            type: jsPsychCanvasKeyboardResponse,
+            stimulus: function(c) { drawTarget(c, arrowSide, arrowDirection); },
+            canvas_size: [PARAMS.CANVAS_W, PARAMS.CANVAS_H],
             choices: ['n', 'm'],
-            trial_duration: TARGET_TIME,
+            trial_duration: PARAMS.TARGET_TIME,
             response_ends_trial: false,
             data: {
                 trial_type: 'target',
@@ -409,10 +416,11 @@
 
         // 7. 反应窗口
         trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateFixation(false),
+            type: jsPsychCanvasKeyboardResponse,
+            stimulus: function(c) { drawFixationFrame(c, false); },
+            canvas_size: [PARAMS.CANVAS_W, PARAMS.CANVAS_H],
             choices: ['n', 'm'],
-            trial_duration: RESPONSE_DEADLINE - TARGET_TIME,
+            trial_duration: PARAMS.RESPONSE_DEADLINE - PARAMS.TARGET_TIME,
             data: {
                 trial_type: 'response_window',
                 trial_number: trialNum,
@@ -423,7 +431,9 @@
                 left_image: leftImageType,
                 right_image: rightImageType,
                 arrow_position: arrowSide === 'left' ? 1 : 2,
-                arrow_orient: arrowDirection === 'left' ? 1 : 2
+                arrow_orient: arrowDirection === 'left' ? 1 : 2,
+                cue_frames: PARAMS.CUE_FRAMES,
+                mask_frames: PARAMS.MASK_FRAMES
             },
             on_finish: function(data) {
                 const allData = jsPsych.data.get().filter({
@@ -431,10 +441,8 @@
                     block_number: blockNum
                 });
                 const targetData = allData.filter({ trial_type: 'target' }).values()[0];
-
                 let response = null;
                 let rt = null;
-
                 if (targetData && targetData.response) {
                     response = targetData.response;
                     rt = targetData.rt;
@@ -442,22 +450,21 @@
                     response = data.response;
                     rt = targetData ? (targetData.trial_duration + data.rt) : data.rt;
                 }
-
-                const correct = response === data.correct_response;
                 data.final_response = response;
                 data.final_response_code = response === 'n' ? 1 : (response === 'm' ? 2 : null);
                 data.final_rt = rt;
-                data.correct = correct;
-                data.correct_code = correct ? 1 : 0;
-                data.trial_order = (blockNum - 1) * TRIAL_N + trialNum;
-                data.show_error_feedback = (response !== null && !correct);
+                data.correct = response === data.correct_response;
+                data.correct_code = data.correct ? 1 : 0;
+                data.trial_order = (blockNum - 1) * PARAMS.TRIAL_N + trialNum;
+                data.show_error_feedback = (response !== null && !data.correct);
             }
         });
 
         // 8. 错误反馈
         trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: '',
+            type: jsPsychCanvasKeyboardResponse,
+            stimulus: function(c) { drawFixationFrame(c, false); },
+            canvas_size: [PARAMS.CANVAS_W, PARAMS.CANVAS_H],
             choices: 'NO_KEYS',
             trial_duration: 1,
             data: { trial_type: 'error_feedback', trial_number: trialNum, block_number: blockNum },
@@ -466,35 +473,31 @@
                     .filter({ trial_number: trialNum, block_number: blockNum, trial_type: 'response_window' })
                     .values()[0];
                 if (last && last.show_error_feedback) {
-                    trial.stimulus = generateFixation(true);
+                    trial.stimulus = function(c) { drawFixationFrame(c, true); };
                     trial.trial_duration = 300;
                 } else {
-                    trial.stimulus = generateFixation(false);
                     trial.trial_duration = 1;
                 }
             }
         });
 
         // 9. ITI
-        trialTimeline.push({
-            type: jsPsychHtmlKeyboardResponse,
-            stimulus: generateFixation(false),
-            choices: 'NO_KEYS',
-            trial_duration: Math.random() * 500 + 100
-        });
+        const itiFrames = Math.max(6, Math.round((Math.random() * 500 + 100) / PARAMS.FRAME_MS));
+        pushFrameTrials(trialTimeline, itiFrames,
+            function(c) { drawFixationFrame(c, false); },
+            { trial_type: 'iti', trial_number: trialNum, block_number: blockNum });
 
         return { timeline: trialTimeline };
     }
 
     function createRunTimeline(blockNum) {
         const pairIndices = [];
-        for (let i = 0; i < TRIAL_N; i++) {
+        for (let i = 0; i < PARAMS.TRIAL_N; i++) {
             pairIndices.push(i % IMAGE_PAIRS.length);
         }
         shuffleArray(pairIndices);
-
         const runTimeline = [];
-        for (let i = 0; i < TRIAL_N; i++) {
+        for (let i = 0; i < PARAMS.TRIAL_N; i++) {
             runTimeline.push(createTrial(i + 1, blockNum, pairIndices[i]));
         }
         return runTimeline;
@@ -509,21 +512,17 @@
     }
 
     // ==================== Block 循环 ====================
-    for (let block = 1; block <= RUN_NUM; block++) {
+    for (let block = 1; block <= PARAMS.RUN_NUM; block++) {
         timeline.push({
             type: jsPsychHtmlKeyboardResponse,
             stimulus: function() {
-                return `<p style="font-size:24px;color:yellow;">等待开始 Block ${block}/${RUN_NUM}，按 S 键继续</p>` + generateFixation(false);
+                return `<p style="font-size:24px;color:yellow;">等待开始 Block ${block}/${PARAMS.RUN_NUM}，按 S 键继续</p>`;
             },
             choices: ['s'],
-            on_finish: function() {
-                experimentData.currentRun = block;
-            }
+            on_finish: function() { experimentData.currentRun = block; }
         });
-
         timeline = timeline.concat(createRunTimeline(block));
-
-        if (block < RUN_NUM) {
+        if (block < PARAMS.RUN_NUM) {
             timeline.push({
                 type: jsPsychHtmlKeyboardResponse,
                 stimulus: function() {
@@ -532,10 +531,10 @@
                     const acc = trials.count() > 0 ? Math.round(correct.count() / trials.count() * 100) : 0;
                     const avgRt = correct.count() > 0 ? Math.round(correct.select('final_rt').mean()) : 0;
                     return `<div style="font-size:22px;text-align:center;line-height:2;color:white;">
-                        <p style="font-size:28px;color:#4CAF50;">Block ${block}/${RUN_NUM} 完成</p>
+                        <p style="font-size:28px;color:#4CAF50;">Block ${block}/${PARAMS.RUN_NUM} 完成</p>
                         <p>正确率: <strong style="color:#2196F3;">${acc}%</strong></p>
                         <p>平均反应时: <strong style="color:#2196F3;">${avgRt} ms</strong></p>
-                        <p style="margin-top:30px;">请休息片刻，按 <strong>S</strong> 键继续</p>
+                        <p style="margin-top:30px;">按 <strong>S</strong> 键继续</p>
                     </div>`;
                 },
                 choices: ['s']
@@ -552,7 +551,7 @@
             const avgRt = correct.count() > 0 ? Math.round(correct.select('final_rt').mean()) : 0;
             return `<div style="font-size:24px;text-align:center;line-height:2;color:white;">
                 <p style="font-size:32px;color:#4CAF50;">训练结束，感谢参与！</p>
-                <p style="margin-top:30px;">总正确率: <strong style="color:#2196F3;">${acc}%</strong></p>
+                <p>总正确率: <strong style="color:#2196F3;">${acc}%</strong></p>
                 <p>平均反应时: <strong style="color:#2196F3;">${avgRt} ms</strong></p>
                 <p style="margin-top:40px;color:#FF5722;">按<strong>空格键</strong>下载数据</p>
             </div>`;
@@ -560,7 +559,6 @@
         choices: [' ']
     });
 
-    // ==================== 数据保存 ====================
     function displayResults() {
         const trials = jsPsych.data.get().filter({ trial_type: 'response_window' });
         const trialsData = trials.values().map(t => ({
@@ -572,14 +570,14 @@
             right_image: t.right_image || '',
             arrow_position: t.arrow_position || '',
             arrow_orient: t.arrow_orient || '',
+            cue_frames: t.cue_frames || PARAMS.CUE_FRAMES,
+            mask_frames: t.mask_frames || PARAMS.MASK_FRAMES,
             final_response_code: t.final_response_code ?? '',
             correct_code: t.correct_code ?? '',
             final_rt: t.final_rt || ''
         }));
-
-        const csv = convertToCSV(trialsData);
-        const filename = `Depression_Conscious_training_${experimentData.subjectID}_Day${experimentData.trainingDay}.csv`;
-        downloadCSV(csv, filename);
+        downloadCSV(convertToCSV(trialsData),
+            `Depression_Conscious_training_${experimentData.subjectID}_Day${experimentData.trainingDay}.csv`);
     }
 
     function convertToCSV(data) {
