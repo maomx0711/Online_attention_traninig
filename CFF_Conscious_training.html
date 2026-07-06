@@ -60,7 +60,8 @@
         RUN_NUM: 8,
         FRAME_MS: 1000 / 60,
         FIXATION_FRAMES: 30,
-        CUE_FRAMES: 1,
+        CUE_FRAMES: 10,
+        CUE_DURATION_MS: 100,
         MASK_FRAMES: 16,
         ISI_FRAMES: 3,
         TARGET_TIME: 100,
@@ -152,6 +153,7 @@
             raw_median_ms: Math.round(info.rawMedianMs * 100) / 100
         };
         PARAMS.FRAME_MS = info.frameMs;
+        PARAMS.CUE_FRAMES = Math.max(6, Math.round(PARAMS.CUE_DURATION_MS / PARAMS.FRAME_MS));
     }
 
     const jsPsych = initJsPsych({
@@ -311,7 +313,9 @@
                     screen_refresh_hz_measured: refreshRateInfo.measured_hz,
                     screen_refresh_hz_used: refreshRateInfo.used_hz,
                     frame_ms: refreshRateInfo.frame_ms,
-                    training_mode: 'conscious_cff_emoji'
+                    training_mode: 'conscious_cff_emoji',
+                    cue_frames: PARAMS.CUE_FRAMES,
+                    cue_duration_ms: PARAMS.CUE_DURATION_MS
                 });
                 const resultEl = document.getElementById('refresh-result');
                 if (resultEl) {
@@ -319,7 +323,9 @@
                         '测量值约 <strong style="color:#4CAF50;">' + refreshRateInfo.measured_hz +
                         ' Hz</strong><br>实验按 <strong style="color:#2196F3;">' +
                         refreshRateInfo.used_hz + ' Hz</strong> 校准（每帧 ' +
-                        refreshRateInfo.frame_ms.toFixed(2) + ' ms）';
+                        refreshRateInfo.frame_ms.toFixed(2) + ' ms）<br>' +
+                        '有意识线索呈现 <strong style="color:#FFD700;">' + PARAMS.CUE_FRAMES +
+                        ' 帧</strong>（红绿相间静态图，约 ' + PARAMS.CUE_DURATION_MS + ' ms，与无意识版相同）';
                 }
                 const progEl = document.getElementById('refresh-progress');
                 if (progEl) progEl.textContent = '刷新率检测完成';
@@ -367,7 +373,9 @@
         type: jsPsychInstructions,
         pages: [
             '<p style="font-size:24px;">欢迎参加 CFF 有意识注意转移训练</p>' +
-            '<p>左右<strong>两个方框</strong>内会同时呈现两种情绪的 emoji 线条图（如开心与难过），仅呈现 <strong>1 帧</strong>。</p>' +
+            '<p>左右<strong>两个方框</strong>内会同时呈现两种情绪的 emoji 线条图（如开心与难过），' +
+            '连续呈现相同的红绿相间静态图约 <strong>' + PARAMS.CUE_DURATION_MS +
+            ' ms</strong>（与无意识版呈现时间相同，帧数随屏幕刷新率自动校准）。</p>' +
             '<p>刺激为黄色背景上的红绿相间线条表情，<strong>可以清楚看到</strong>表情轮廓（有意识呈现）。</p>',
             '<p style="font-size:20px;">您的任务：</p>' +
             '<p>表情消失后出现箭头（← 或 →）。</p>' +
@@ -469,6 +477,7 @@
                 arrow_position: arrowSide === 'left' ? 1 : 2,
                 arrow_orient: arrowDirection === 'left' ? 1 : 2,
                 cue_frames: PARAMS.CUE_FRAMES,
+                cue_duration_ms: PARAMS.CUE_DURATION_MS,
                 mask_frames: PARAMS.MASK_FRAMES
             },
             on_finish: function(data) {
@@ -611,6 +620,7 @@
                 arrow_position: t.arrow_position || '',
                 arrow_orient: t.arrow_orient || '',
                 cue_frames: t.cue_frames || PARAMS.CUE_FRAMES,
+                cue_duration_ms: t.cue_duration_ms || PARAMS.CUE_DURATION_MS,
                 mask_frames: t.mask_frames || PARAMS.MASK_FRAMES,
                 final_response_code: t.final_response_code ?? '',
                 correct_code: t.correct_code ?? '',
@@ -621,7 +631,9 @@
             'training_mode,conscious_cff_emoji\n' +
             'screen_refresh_hz_measured,' + refreshRateInfo.measured_hz + '\n' +
             'screen_refresh_hz_used,' + refreshRateInfo.used_hz + '\n' +
-            'frame_ms,' + refreshRateInfo.frame_ms.toFixed(4) + '\n\n' +
+            'frame_ms,' + refreshRateInfo.frame_ms.toFixed(4) + '\n' +
+            'cue_duration_ms,' + PARAMS.CUE_DURATION_MS + '\n' +
+            'cue_frames,' + PARAMS.CUE_FRAMES + '\n\n' +
             convertToCSV(trialsData),
             'CFF_Conscious_training_' + experimentData.subjectID + '_Day' + experimentData.trainingDay + '.csv'
         );
